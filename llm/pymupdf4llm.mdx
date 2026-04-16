@@ -1,0 +1,320 @@
+---
+title: "pymupdf4llm: PDF to Markdown for AI pipelines"
+description: "How to use pymupdf4llm to convert PDF documents to Markdown text optimized for LLM ingestion, with support for tables, images, and multi-column layouts."
+keywords: ["pymupdf4llm", "PDF to Markdown", "LLM", "RAG", "LlamaIndex", "table extraction", "OCR"]
+---
+
+pymupdf4llm is a lightweight extension built on top of PyMuPDF that converts PDF documents into clean, structured text for LLM and RAG pipelines. It handles the hard parts of PDF extraction — multi-column reading order, table detection, scanned pages, headers and footers — and outputs Markdown, JSON, or plain text with minimal configuration.
+
+## Installation
+
+pymupdf4llm is a separate package from PyMuPDF. Install it from PyPI:
+
+```bash
+pip install pymupdf4llm
+```
+
+<Note>
+  Installing pymupdf4llm will also install PyMuPDF as a dependency. You do not need to install PyMuPDF separately.
+</Note>
+
+## Basic usage
+
+### Convert to Markdown
+
+Pass a file path string to `to_markdown()` to get the full document content as a single Markdown string:
+
+```python
+import pymupdf4llm
+
+md_text = pymupdf4llm.to_markdown("input.pdf")
+```
+
+You can also pass an open `pymupdf.Document` object instead of a file path. This is required when working with in-memory documents, `pathlib.Path` objects, or file-like objects:
+
+```python
+import pymupdf
+import pymupdf4llm
+
+doc = pymupdf.open("input.pdf")
+md_text = pymupdf4llm.to_markdown(doc)
+```
+
+To save the output to disk:
+
+```python
+import pathlib
+
+pathlib.Path("output.md").write_bytes(md_text.encode())
+```
+
+### Convert to JSON
+
+`to_json()` returns bounding box and layout data for each element on the page. Use this when you need detailed structural information for custom processing or more advanced RAG workflows:
+
+```python
+import pymupdf4llm
+
+json_output = pymupdf4llm.to_json("input.pdf")
+```
+
+### Convert to plain text
+
+`to_text()` strips all Markdown formatting and returns plain text:
+
+```python
+import pymupdf4llm
+
+txt = pymupdf4llm.to_text("input.pdf")
+```
+
+## Per-page output
+
+Set `page_chunks=True` to receive a list of dictionaries — one per page — instead of a single concatenated string. Each dictionary contains:
+
+| Key | Description |
+|---|---|
+| `"text"` | Page content as Markdown |
+| `"metadata"` | Document metadata plus `file_path`, `page_count`, `page_number` |
+| `"toc_items"` | Table of contents entries pointing to this page |
+| `"tables"` | List of detected tables with bounding boxes, row/col counts |
+| `"images"` | List of images on the page (from `Page.get_image_info()`) |
+| `"graphics"` | List of vector graphics bounding boxes |
+
+```python
+import pymupdf4llm
+
+chunks = pymupdf4llm.to_markdown("input.pdf", page_chunks=True)
+
+for chunk in chunks:
+    page_number = chunk["metadata"]["page_number"]
+    text = chunk["text"]
+    tables = chunk["tables"]
+    print(f"Page {page_number}: {len(tables)} table(s) detected")
+```
+
+<Tip>
+  Page chunks are ideal for provenance tracking in RAG systems. Store the `metadata` alongside your vector embeddings so you can cite the exact page and document when returning answers.
+</Tip>
+
+## Including images in Markdown
+
+By default, images are not included in the Markdown output. Use `write_images=True` to save images to disk and generate Markdown image references, or `embed_images=True` to include them as base64-encoded strings directly in the output.
+
+<Tabs>
+  <Tab title="Write to disk">
+    ```python
+    import pymupdf4llm
+
+    md_text = pymupdf4llm.to_markdown(
+        "input.pdf",
+        write_images=True,
+        image_path="./images",   # folder to store extracted images
+        image_format="png",      # default; also accepts "jpg" and others
+        dpi=150,                 # image resolution
+    )
+    ```
+  </Tab>
+  <Tab title="Embed as base64">
+    ```python
+    import pymupdf4llm
+
+    md_text = pymupdf4llm.to_markdown(
+        "input.pdf",
+        embed_images=True,  # images included inline as base64 data URIs
+    )
+    ```
+  </Tab>
+</Tabs>
+
+<Warning>
+  Embedding images as base64 can drastically increase the size of the Markdown output. Use `write_images=True` for large documents unless your pipeline requires self-contained output.
+</Warning>
+
+## Table detection
+
+pymupdf4llm automatically detects tables and renders them as Markdown tables. The default detection strategy is `"lines_strict"`, which uses vector graphics lines as table borders and ignores background colors.
+
+```python
+import pymupdf4llm
+
+# Default: strict line-based table detection
+md_text = pymupdf4llm.to_markdown("input.pdf")
+
+# Try "lines" if strict mode misses tables with colored backgrounds
+md_text = pymupdf4llm.to_markdown("input.pdf", table_strategy="lines")
+```
+
+Table metadata is available in page chunks:
+
+```python
+chunks = pymupdf4llm.to_markdown("input.pdf", page_chunks=True)
+
+for chunk in chunks:
+    for table in chunk["tables"]:
+        print(f"Table at {table['bbox']} — {table['row_count']} rows, {table['col_count']} cols")
+```
+
+## Headers and footers
+
+Many PDFs have repetitive header and footer content on every page — logos, document titles, page numbers — that adds noise to LLM input. pymupdf4llm can detect and omit these elements:
+
+```python
+import pymupdf4llm
+
+md_text = pymupdf4llm.to_markdown(
+    "input.pdf",
+    header=False,  # exclude detected page headers
+    footer=False,  # exclude detected page footers
+)
+```
+
+<Note>
+  Header and footer exclusion applies to Markdown and plain text output. JSON output always includes all content to preserve complete layout data.
+</Note>
+
+## Processing specific pages
+
+Use the `pages` parameter to process a subset of pages. Page numbers are 0-based:
+
+```python
+import pymupdf4llm
+
+# Process only pages 1, 2, and 3 (0-based: indices 0, 1, 2)
+md_text = pymupdf4llm.to_markdown("input.pdf", pages=[0, 1, 2])
+```
+
+## OCR support
+
+pymupdf4llm includes a hybrid OCR strategy. It inspects each page before extracting text: if a page contains no selectable text, OCR is triggered automatically. Pages with native text skip OCR entirely, keeping processing fast.
+
+<AccordionGroup>
+  <Accordion title="Auto-OCR (default)">
+    OCR runs automatically on any page that has no selectable text. No configuration needed:
+
+    ```python
+    import pymupdf4llm
+
+    md_text = pymupdf4llm.to_markdown("scanned-document.pdf")
+    ```
+  </Accordion>
+  <Accordion title="Force OCR">
+    Force OCR on every page, bypassing the auto-detection check. Use this when the native text layer is known to be corrupt or misencoded:
+
+    ```python
+    import pymupdf4llm
+
+    md_text = pymupdf4llm.to_markdown("document.pdf", force_ocr=True)
+    ```
+
+    You can also force OCR on specific pages only:
+
+    ```python
+    md_text = pymupdf4llm.to_markdown(
+        "document.pdf",
+        pages=[2, 3, 4],
+        force_ocr=True,
+    )
+    ```
+  </Accordion>
+  <Accordion title="Disable OCR">
+    Prevent OCR from running at all. Pages with no selectable text return empty strings:
+
+    ```python
+    import pymupdf4llm
+
+    md_text = pymupdf4llm.to_markdown("document.pdf", use_ocr=False)
+    ```
+  </Accordion>
+  <Accordion title="OCR language">
+    Specify Tesseract language codes for multilingual documents. Multiple languages are joined with `+`:
+
+    ```python
+    import pymupdf4llm
+
+    md_text = pymupdf4llm.to_markdown(
+        "multilingual.pdf",
+        ocr_language="eng+deu",  # English and German
+    )
+    ```
+
+    Install language packs before use:
+
+    ```bash
+    sudo apt install tesseract-ocr-deu tesseract-ocr-fra
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## LlamaIndex integration
+
+pymupdf4llm provides a `LlamaMarkdownReader` that converts a PDF to Markdown and returns a list of LlamaIndex `Document` objects — one per page. LlamaIndex is not installed automatically; install it separately if needed.
+
+```python
+import pymupdf4llm
+
+llama_reader = pymupdf4llm.LlamaMarkdownReader()
+llama_docs = llama_reader.load_data("input.pdf")
+
+# llama_docs is a list of LlamaIndex Document objects, one per page
+for doc in llama_docs:
+    print(doc.text[:200])
+```
+
+## Configuration reference
+
+Key parameters for `to_markdown()`:
+
+<AccordionGroup>
+  <Accordion title="Output control">
+    | Parameter | Type | Default | Description |
+    |---|---|---|---|
+    | `page_chunks` | `bool` | `False` | Return a list of per-page dicts instead of a single string |
+    | `page_separators` | `bool` | `False` | Insert `--- end of page=n ---` markers between pages |
+    | `pages` | `list` | `None` | 0-based page indices to process; `None` processes all pages |
+    | `header` | `bool` | `True` | Include page header content |
+    | `footer` | `bool` | `True` | Include page footer content |
+    | `show_progress` | `bool` | `False` | Display a progress bar during conversion |
+  </Accordion>
+  <Accordion title="Image options">
+    | Parameter | Type | Default | Description |
+    |---|---|---|---|
+    | `write_images` | `bool` | `False` | Save images to disk and add Markdown references |
+    | `embed_images` | `bool` | `False` | Embed images as base64 strings inline in the Markdown |
+    | `image_path` | `str` | `""` | Folder to write image files when `write_images=True` |
+    | `image_format` | `str` | `"png"` | Image file format (`"png"`, `"jpg"`, etc.) |
+    | `dpi` | `int` | `150` | Image resolution in dots per inch |
+    | `ignore_images` | `bool` | `False` | Skip all images during extraction |
+  </Accordion>
+  <Accordion title="OCR options">
+    | Parameter | Type | Default | Description |
+    |---|---|---|---|
+    | `use_ocr` | `bool` | `True` | Enable automatic OCR on pages with no selectable text |
+    | `force_ocr` | `bool` | `False` | Apply OCR to all pages regardless of their content |
+    | `ocr_language` | `str` | `"eng"` | Tesseract language code(s), e.g., `"eng+deu"` |
+    | `ocr_dpi` | `int` | `300` | Resolution used when rendering pages for OCR |
+  </Accordion>
+  <Accordion title="Text and layout options">
+    | Parameter | Type | Default | Description |
+    |---|---|---|---|
+    | `table_strategy` | `str` | `"lines_strict"` | Table detection strategy: `"lines_strict"` or `"lines"` |
+    | `fontsize_limit` | `float` | `3` | Minimum font size to include in extraction |
+    | `margins` | `float\|list` | `0` | Page border margins to crop before extraction |
+    | `ignore_graphics` | `bool` | `False` | Skip vector graphics; also disables table detection |
+    | `ignore_code` | `bool` | `False` | Suppress monospace/code block formatting |
+    | `extract_words` | `bool` | `False` | Add per-word bounding boxes to page chunk output |
+  </Accordion>
+</AccordionGroup>
+
+## Office document support
+
+To process Office formats (DOC, DOCX, XLS, XLSX, PPT, PPTX), use pymupdf4llm together with PyMuPDF Pro:
+
+```python
+import pymupdf4llm
+import pymupdf.pro
+
+pymupdf.pro.unlock()
+
+md_text = pymupdf4llm.to_markdown("sample.docx")
+```

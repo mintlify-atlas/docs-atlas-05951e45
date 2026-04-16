@@ -1,0 +1,179 @@
+---
+title: "Install PyMuPDF"
+description: "Install PyMuPDF with pip in a Python 3.10+ environment. Covers standard install, optional features like OCR and font tools, and building from source."
+---
+
+PyMuPDF is a Python library that requires **Python 3.10 or later**. Installing it is straightforward with pip, and no external dependencies are required for core functionality. This page walks through the standard install, optional feature setup, building from source, and how to verify your installation.
+
+## Standard installation
+
+<Steps>
+  <Step title="Create a virtual environment">
+    It is recommended to install PyMuPDF inside a Python virtual environment to keep your project's dependencies isolated.
+
+    <CodeGroup>
+    ```bash Windows
+    py -m venv pymupdf-venv
+    .\pymupdf-venv\Scripts\activate
+    python -m pip install --upgrade pip
+    ```
+
+    ```bash Linux / macOS
+    python -m venv pymupdf-venv
+    . pymupdf-venv/bin/activate
+    python -m pip install --upgrade pip
+    ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Install PyMuPDF">
+    Install the latest release from PyPI:
+
+    ```bash
+    pip install pymupdf
+    ```
+
+    This installs from a pre-built wheel if one is available for your platform. Wheels are provided for:
+
+    - Windows 32-bit and 64-bit Intel
+    - Linux 64-bit Intel and ARM
+    - macOS 64-bit Intel and ARM
+
+    Each wheel uses the Python Stable ABI and works with all Python versions from 3.10 onward.
+  </Step>
+
+  <Step title="Verify the installation">
+    Confirm PyMuPDF is installed and check the version:
+
+    ```python
+    import pymupdf
+
+    print(pymupdf.__doc__)
+    # PyMuPDF 1.x.x: Python bindings for the MuPDF 1.x.x library.
+    # Version date: ...
+    # Built for Python 3.x on ...
+    ```
+  </Step>
+</Steps>
+
+## Optional features
+
+PyMuPDF has no mandatory external dependencies, but several optional packages unlock additional capabilities. You can install these at any time — before or after installing PyMuPDF. PyMuPDF detects their presence at import time or when the relevant function is called.
+
+### Font subsetting with fontTools
+
+The `fontTools` package is required for `Document.subset_fonts()`, which reduces PDF file size by removing unused glyphs from embedded fonts.
+
+```bash
+pip install fonttools
+```
+
+### Extra fonts with pymupdf-fonts
+
+The `pymupdf-fonts` package provides a collection of additional fonts for use with PyMuPDF's text output methods.
+
+```bash
+pip install pymupdf-fonts
+```
+
+### OCR with Tesseract
+
+PyMuPDF includes built-in support for OCR via Tesseract, but Tesseract itself must be installed separately as system software (it is not a Python package).
+
+<Steps>
+  <Step title="Install Tesseract">
+    Follow the [official Tesseract installation guide](https://tesseract-ocr.github.io/tessdoc/Installation.html) for your operating system. English language support is included by default.
+  </Step>
+
+  <Step title="Locate the tessdata folder">
+    After installation, find the language data folder. Typical locations:
+
+    - **Windows:** `C:/Program Files/Tesseract-OCR/tessdata`
+    - **Linux / macOS:** `/usr/share/tesseract-ocr/4.00/tessdata`
+  </Step>
+
+  <Step title="Set the TESSDATA_PREFIX environment variable">
+    PyMuPDF needs to know where the language data lives. Set the environment variable before running Python:
+
+    <CodeGroup>
+    ```bash Windows
+    setx TESSDATA_PREFIX "C:/Program Files/Tesseract-OCR/tessdata"
+    ```
+
+    ```bash Linux / macOS
+    export TESSDATA_PREFIX=/usr/share/tesseract-ocr/4.00/tessdata
+    ```
+    </CodeGroup>
+
+    Alternatively, set it from within Python before calling OCR functions:
+
+    ```python
+    import os
+    os.environ["TESSDATA_PREFIX"] = "/usr/share/tesseract-ocr/4.00/tessdata"
+    ```
+  </Step>
+</Steps>
+
+<Note>
+  For OCR in languages other than English, install the appropriate [Tesseract language pack](https://tesseract-ocr.github.io/tessdoc/Data-Files.html) and ensure the `tessdata` folder is set correctly.
+</Note>
+
+### Image export with Pillow
+
+The `Pillow` package is required for `Pixmap.pil_save()` and `Pixmap.pil_tobytes()`, which let you export page images in formats not natively supported by PyMuPDF.
+
+```bash
+pip install Pillow
+```
+
+## Building from source
+
+If no pre-built wheel is available for your platform, pip will automatically build PyMuPDF from source. This requires C/C++ development tools.
+
+**Prerequisites:**
+
+- **Windows:** Install Visual Studio 2019. If installed in a non-standard location, set the `PYMUPDF_SETUP_DEVENV` environment variable to the path of the `devenv.com` binary.
+- **Linux / macOS:** Ensure `gcc` or `clang` and standard build tools are available.
+
+To build and install from the PyMuPDF source tree:
+
+```bash
+git clone https://github.com/pymupdf/PyMuPDF.git
+cd PyMuPDF && pip install .
+```
+
+The build process automatically downloads and compiles the required MuPDF version.
+
+<Warning>
+  Using a non-default MuPDF version (via `PYMUPDF_SETUP_MUPDF_BUILD`) is not generally supported and may cause build failures or unexpected runtime behavior.
+</Warning>
+
+## Troubleshooting
+
+**`ImportError: DLL load failed while importing _extra` (Windows)**
+
+This is usually caused by a missing or outdated `MSVCP140.dll`. Install the latest [Microsoft Visual C++ Redistributable](https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist).
+
+**`ModuleNotFoundError: No module named 'frontend'`**
+
+This happens when the unrelated PyPI package `fitz` (last updated 2017) is installed alongside PyMuPDF and code uses `import fitz`. Fix it by switching to `import pymupdf`, or remove the conflicting package:
+
+```bash
+pip uninstall fitz
+pip install --force-reinstall pymupdf
+```
+
+**Older Linux systems (glibc compatibility)**
+
+Official PyMuPDF Linux wheels require a recent glibc version. If `pip install pymupdf` fails on an older Linux system (e.g., some AWS Lambda environments), you must build from source.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Open a document, extract text, and render pages to images with working code examples.
+  </Card>
+  <Card title="Introduction" icon="book" href="/introduction">
+    Learn what PyMuPDF is, what formats it supports, and how it relates to MuPDF.
+  </Card>
+</CardGroup>

@@ -1,0 +1,193 @@
+---
+title: "Extract tables from PDFs with PyMuPDF"
+description: "How to detect and extract structured tables from PDF pages using PyMuPDF's built-in table finder, with options for pandas DataFrame output."
+---
+
+Tables in PDFs are almost always plain text laid out to look tabular — there is no embedded spreadsheet object. PyMuPDF's built-in table finder analyzes the vector graphics (lines, rectangles) and text positions on a page to detect table structures and extract their cell contents without any external machine-learning dependencies.
+
+## Finding tables with page.find_tables()
+
+Call `page.find_tables()` on any page to get a `TableFinder` object. Its `.tables` list contains one `Table` object for each detected table:
+
+```python
+import pymupdf
+
+doc = pymupdf.open("report.pdf")
+page = doc[0]
+
+finder = page.find_tables()
+print(f"Found {len(finder.tables)} table(s) on page 0")
+```
+
+## The TableFinder and Table objects
+
+`TableFinder` is the top-level result from `page.find_tables()`. It holds:
+
+- `finder.tables` — list of `Table` objects
+- `finder[i]` — shorthand for `finder.tables[i]`
+
+Each `Table` object exposes:
+
+| Attribute / Method | Description |
+|---|---|
+| `table.bbox` | Bounding box of the entire table `(x0, y0, x1, y1)` |
+| `table.row_count` | Number of rows |
+| `table.col_count` | Number of columns |
+| `table.header` | `TableHeader` with `.names` (column names) |
+| `table.cells` | List of cell rectangles |
+| `table.extract()` | Extract cell text as a list of lists |
+| `table.to_pandas()` | Convert to a pandas `DataFrame` |
+| `table.to_markdown()` | Convert to a GitHub-flavored Markdown string |
+
+## Accessing table cells with table.extract()
+
+`table.extract()` returns a list of rows, where each row is a list of cell text strings. Empty cells are returned as empty strings; cells that span across merged regions may return `None`.
+
+```python
+import pymupdf
+
+doc = pymupdf.open("report.pdf")
+page = doc[0]
+
+finder = page.find_tables()
+if finder.tables:
+    table = finder.tables[0]
+    data = table.extract()
+
+    # Print header
+    print(" | ".join(table.header.names))
+    print("-" * 60)
+
+    # Print rows
+    for row in data:
+        print(" | ".join(cell or "" for cell in row))
+```
+
+## Converting to a pandas DataFrame
+
+`table.to_pandas()` uses `table.header.names` as column names. Install pandas with `pip install pandas` before calling this method.
+
+```python
+import pymupdf
+
+doc = pymupdf.open("report.pdf")
+page = doc[0]
+
+finder = page.find_tables()
+if finder.tables:
+    df = finder.tables[0].to_pandas()
+    print(df)
+    print(df.dtypes)
+
+    # Export to CSV
+    df.to_csv("table.csv", index=False)
+```
+
+<Note>
+Column names come from `table.header.names`. If the header row is inside the table cells, PyMuPDF will automatically detect it and exclude that row from the data rows.
+</Note>
+
+## Handling tables that span multiple pages
+
+PyMuPDF detects tables per page. To join a table split across pages, extract from each page and concatenate the rows:
+
+```python
+import pymupdf
+
+doc = pymupdf.open("long-report.pdf")
+all_rows = []
+header = None
+
+for page in doc:
+    finder = page.find_tables()
+    if not finder.tables:
+        continue
+
+    table = finder.tables[0]
+
+    if header is None:
+        header = table.header.names  # capture header from first occurrence
+
+    rows = table.extract()
+
+    # Skip the header row if it appears on subsequent pages
+    if table.header.external is False and all_rows:
+        rows = rows[1:]  # first row is the table header, already captured
+
+    all_rows.extend(rows)
+
+print(header)
+for row in all_rows:
+    print(row)
+```
+
+## Configuring table detection
+
+`page.find_tables()` accepts keyword arguments that tune how edges and text are interpreted:
+
+```python
+import pymupdf
+
+doc = pymupdf.open("report.pdf")
+page = doc[0]
+
+finder = page.find_tables(
+    vertical_strategy="lines",      # "lines", "lines_strict", "text", or "explicit"
+    horizontal_strategy="lines",
+    snap_tolerance=3,               # points within this distance are snapped together
+    join_tolerance=3,               # gap smaller than this is treated as continuous
+    edge_min_length=3,              # ignore edges shorter than this
+    intersection_tolerance=3,       # tolerance for line intersection detection
+)
+```
+
+<AccordionGroup>
+  <Accordion title="vertical_strategy / horizontal_strategy">
+    Controls how edges are identified:
+
+    - `"lines"` — use vector graphic lines and rectangles (default)
+    - `"lines_strict"` — use only explicit line segments, not rectangle borders
+    - `"text"` — infer edges from text alignment when no drawn lines exist
+    - `"explicit"` — only use lines you supply via `vertical_lines=` / `horizontal_lines=`
+  </Accordion>
+  <Accordion title="snap_tolerance">
+    Edges within `snap_tolerance` points of each other are merged into one. Increase this if your PDF has slightly misaligned grid lines.
+  </Accordion>
+  <Accordion title="join_tolerance">
+    Collinear edges with a gap smaller than `join_tolerance` are joined into a single edge. Increase this if table borders are drawn as multiple short segments.
+  </Accordion>
+</AccordionGroup>
+
+## Real example: extract and print a table
+
+Here is a complete, self-contained example that opens a PDF, finds all tables on the first page, and prints each one as formatted text:
+
+```python
+import pymupdf
+
+doc = pymupdf.open("financial-report.pdf")
+page = doc[0]
+
+finder = page.find_tables()
+
+if not finder.tables:
+    print("No tables found on page 0.")
+else:
+    for i, table in enumerate(finder.tables):
+        print(f"\n=== Table {i + 1} ===")
+        print(f"  Rows: {table.row_count}, Columns: {table.col_count}")
+        print(f"  BBox: {table.bbox}")
+
+        # Print header
+        header = " | ".join(name or f"Col{j}" for j, name in enumerate(table.header.names))
+        print(header)
+        print("-" * len(header))
+
+        # Print data rows
+        for row in table.extract():
+            print(" | ".join(cell or "" for cell in row))
+```
+
+<Tip>
+If `find_tables()` misses a table or produces too many false positives, try switching `vertical_strategy` or `horizontal_strategy` to `"text"` for tables without drawn borders, or increase `snap_tolerance` for tables with imprecise line placement.
+</Tip>

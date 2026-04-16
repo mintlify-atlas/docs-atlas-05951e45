@@ -1,0 +1,206 @@
+---
+title: "Quad class — PyMuPDF API reference"
+description: "API reference for PyMuPDF's Quad class: general quadrilaterals (4-point polygons) used for text spans, search results, and non-rectangular regions."
+keywords: ["PyMuPDF", "Quad", "quadrilateral", "tetragon", "text search", "PDF geometry", "span quad"]
+---
+
+`Quad` represents a general four-sided polygon (quadrilateral or tetragon) in the plane, defined by four `Point` objects named `ul` (upper left), `ur` (upper right), `ll` (lower left), and `lr` (lower right). Unlike `Rect`, a `Quad` does not require its sides to be axis-aligned — the four corners can be in any position. This makes `Quad` the natural return type for text search results and text span geometry, where text on a rotated or skewed page produces non-rectangular bounding regions.
+
+<Note>
+The corner names `ul`, `ur`, `ll`, `lr` are conventional — they describe the intended role of each corner, not a geometric constraint. A rotated rectangle stored as a `Quad` may have its "upper left" corner physically below its "lower right" corner in page space.
+</Note>
+
+## What makes a Quad useful
+
+- **Text search results**: `page.search_for()` returns a list of `Quad` objects, one per match. On pages with a zero-degree rotation these are rectangular; on rotated pages they are not.
+- **Text span geometry**: The `"dict"` and `"rawdict"` extraction modes include a `"bbox"` (a `Rect`) and, when `flags` includes `TEXT_PRESERVE_SPANS`, also a `"origin"` point and a quad for each span.
+- **Annotation targets**: `Page.add_highlight_annot()`, `Page.add_squiggly_annot()`, and related methods accept a list of quads.
+- **Drawing**: `page.draw_quad()` draws the outline of a quad.
+
+## Constructors
+
+<ResponseField name="Quad()" type="Quad">
+  Creates a degenerate quad with all four corners at `Point(0, 0)`.
+</ResponseField>
+
+<ResponseField name="Quad(ul, ur, ll, lr)" type="Quad">
+  Creates a quad from four `point_like` objects.
+</ResponseField>
+
+<ResponseField name="Quad(quad)" type="Quad">
+  Creates a new copy of another `Quad`.
+</ResponseField>
+
+<ResponseField name="Quad(sequence)" type="Quad">
+  Creates a quad from a Python sequence of exactly 4 `point_like` objects.
+</ResponseField>
+
+```python
+import pymupdf
+
+# From four points
+ul = pymupdf.Point(10, 10)
+ur = pymupdf.Point(200, 20)
+ll = pymupdf.Point(0, 100)
+lr = pymupdf.Point(190, 110)
+q = pymupdf.Quad(ul, ur, ll, lr)
+
+# From a Rect (produces a rectangular quad)
+r = pymupdf.Rect(50, 50, 200, 150)
+q_from_rect = r.quad
+print(q_from_rect)
+
+# Copy
+q2 = pymupdf.Quad(q)
+```
+
+## Properties
+
+<ResponseField name="ul" type="Point">
+  The upper-left corner of the quad. Mutable.
+</ResponseField>
+
+<ResponseField name="ur" type="Point">
+  The upper-right corner of the quad. Mutable.
+</ResponseField>
+
+<ResponseField name="ll" type="Point">
+  The lower-left corner of the quad. Mutable.
+</ResponseField>
+
+<ResponseField name="lr" type="Point">
+  The lower-right corner of the quad. Mutable.
+</ResponseField>
+
+<ResponseField name="rect" type="Rect">
+  The smallest axis-aligned `Rect` that contains all four corners of the quad (the bounding box). Computed as `min`/`max` of all corner coordinates.
+
+  ```python
+  q = pymupdf.Quad(
+      pymupdf.Point(10, 30),
+      pymupdf.Point(80, 10),
+      pymupdf.Point(20, 90),
+      pymupdf.Point(90, 70),
+  )
+  print(q.rect)  # Rect(10.0, 10.0, 90.0, 90.0)
+  ```
+</ResponseField>
+
+<ResponseField name="width" type="float">
+  The maximum length of the top side (`ul` to `ur`) and the bottom side (`ll` to `lr`). Returns the longer of the two.
+</ResponseField>
+
+<ResponseField name="height" type="float">
+  The maximum length of the left side (`ul` to `ll`) and the right side (`ur` to `lr`). Returns the longer of the two.
+</ResponseField>
+
+<ResponseField name="is_rectangular" type="bool">
+  `True` if all four corner angles are 90 degrees. This implies the quad is convex and non-empty. A rectangular quad is the result of applying a rotation, scale, or translation matrix to a `Rect`.
+</ResponseField>
+
+<ResponseField name="is_convex" type="bool">
+  `True` if the quad is a convex set — any line segment connecting two points inside the quad lies entirely within the quad. Checked by verifying that the two diagonals separate the remaining corners on opposite sides.
+</ResponseField>
+
+<ResponseField name="is_empty" type="bool">
+  `True` if the enclosed area is zero, meaning at least three of the four corners are collinear. Equivalent to `width < 1e-5` or `height < 1e-5`.
+</ResponseField>
+
+## Methods
+
+<ResponseField name="transform(matrix)" type="Quad">
+  Transforms each corner of the quad in place by applying `matrix_like` `matrix`. Modifies the quad and returns `self`.
+
+  ```python
+  import pymupdf
+
+  q = pymupdf.Rect(0, 0, 100, 50).quad
+  mat = pymupdf.Matrix(45)   # rotate 45 degrees
+  q.transform(mat)
+  print(q.is_rectangular)   # True — rotation preserves rectangularity
+  ```
+</ResponseField>
+
+<ResponseField name="morph(fixpoint, matrix)" type="Quad">
+  Applies `matrix_like` `matrix` to the quad using `point_like` `fixpoint` as an anchor that remains stationary. Returns a **new** `Quad` without modifying the original. If the quad is infinite, returns the infinite quad.
+
+  ```python
+  import pymupdf
+
+  r = pymupdf.Rect(100, 100, 200, 200)
+  q = r.quad
+  center = r.tl  # rotate around top-left corner
+  rotated = q.morph(center, pymupdf.Matrix(30))
+  print(rotated)
+  ```
+</ResponseField>
+
+## Quads in search results
+
+`page.search_for()` returns quads by default (pass `quads=False` for rect results). Each quad tightly wraps one occurrence of the search string as it appears on the page, accounting for any page rotation.
+
+```python
+import pymupdf
+
+doc = pymupdf.open("document.pdf")
+page = doc[0]
+
+# Returns a list of Quad objects, one per match
+hits = page.search_for("invoice")
+
+for q in hits:
+    print(q)               # Quad corner points
+    print(q.rect)          # Bounding Rect for the match
+    print(q.is_rectangular) # True if page has no shear
+
+    # Highlight each match
+    page.add_highlight_annot(q)
+
+doc.save("highlighted.pdf")
+```
+
+## Quads in text extraction
+
+When extracting text with `page.get_text("dict")`, each span in the output contains a `"bbox"` key with a tuple of four floats. For precise quad geometry (useful on rotated pages), use `page.get_text("rawdict", flags=pymupdf.TEXT_PRESERVE_SPANS)` or extract individual character quads.
+
+```python
+import pymupdf
+
+doc = pymupdf.open("document.pdf")
+page = doc[0]
+
+blocks = page.get_text("dict")["blocks"]
+for block in blocks:
+    if block["type"] != 0:
+        continue
+    for line in block["lines"]:
+        for span in line["spans"]:
+            bbox = pymupdf.Rect(span["bbox"])
+            # For span-level quad (accounts for rotation):
+            origin = pymupdf.Point(span["origin"])
+            print(f"Span: {span['text']!r}, bbox: {bbox}")
+```
+
+## Containment and algebra
+
+Starting with PyMuPDF 1.19.6, quads support containment checks against points, rects, and other quads.
+
+```python
+import pymupdf
+
+r = pymupdf.Rect(0, 0, 100, 100)
+q = r.quad
+
+# Rect is semi-open: bottom-right corner is outside
+print(r.br in r)       # False
+# Quad has no notion of "openness": all four corners belong
+print(r.br in q)       # True
+
+# Check if a point falls in a quad
+p = pymupdf.Point(50, 50)
+print(p in q)          # True
+```
+
+<Tip>
+To convert between a `Rect` and a `Quad`, use `rect.quad` to get the quad and `quad.rect` to get the bounding rectangle. Note that `quad.rect` is always at least as large as the original rect, since it is an axis-aligned bounding box.
+</Tip>

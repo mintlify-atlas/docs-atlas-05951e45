@@ -1,0 +1,470 @@
+---
+title: "Document class — PyMuPDF API reference"
+description: "Full API reference for PyMuPDF's Document class: opening files, accessing pages, metadata, saving, merging, encryption, and PDF manipulation methods."
+---
+
+The `Document` class is the entry point for all PyMuPDF operations. It represents an opened document — whether a PDF, XPS, EPUB, MOBI, or image file — and exposes methods for reading pages, extracting text, manipulating structure, saving output, and more. An alias `pymupdf.open` is available and behaves identically to the `Document` constructor.
+
+```python
+import pymupdf
+
+# Open a file
+doc = pymupdf.open("report.pdf")
+
+# Use as context manager (auto-closes)
+with pymupdf.open("report.pdf") as doc:
+    for page in doc:
+        print(page.number)
+```
+
+## Properties
+
+<ResponseField name="page_count" type="int">
+  The total number of pages in the document.
+</ResponseField>
+
+<ResponseField name="metadata" type="dict">
+  A dictionary of document metadata with string keys: `"format"`, `"title"`, `"author"`, `"subject"`, `"keywords"`, `"creator"`, `"producer"`, `"creationDate"`, `"modDate"`, `"encryption"`. Values are strings or `None` if unavailable.
+</ResponseField>
+
+<ResponseField name="name" type="str">
+  The filename of the document. Empty string if the document was created from a memory stream.
+</ResponseField>
+
+<ResponseField name="is_pdf" type="bool">
+  `True` if the document is a PDF.
+</ResponseField>
+
+<ResponseField name="is_encrypted" type="bool">
+  `True` if the document is still encrypted (i.e. `authenticate()` has not been called successfully yet).
+</ResponseField>
+
+<ResponseField name="needs_pass" type="bool">
+  `True` if a password is required to access the document's data.
+</ResponseField>
+
+<ResponseField name="is_repaired" type="bool">
+  PDF only. `True` if the PDF had to be repaired when it was opened (due to structural damage).
+</ResponseField>
+
+<ResponseField name="permissions" type="int">
+  An integer encoding the document's access permissions. Consult `pymupdf.PDF_PERM_*` constants to test individual bits (e.g. `PDF_PERM_COPY`, `PDF_PERM_PRINT`).
+</ResponseField>
+
+<ResponseField name="is_closed" type="bool">
+  `True` if the document has been closed.
+</ResponseField>
+
+<ResponseField name="chapter_count" type="int">
+  The number of chapters. Always 1 for non-EPUB documents.
+</ResponseField>
+
+<ResponseField name="outline" type="Outline or None">
+  The first item in the document outline (table of contents) chain, or `None`.
+</ResponseField>
+
+---
+
+## Constructor
+
+### `Document(filename, stream, filetype, rect, width, height, fontsize)`
+
+Creates a `Document` object. With no arguments, creates a new empty PDF. Either `filename` or `stream` is used to open an existing document.
+
+<ParamField path="filename" type="str or pathlib.Path">
+  Path of the file to open. The document type is always determined from file content; `filetype` is only used as a fallback for plain-text formats (HTML, XML, TXT) with ambiguous or missing extensions.
+</ParamField>
+
+<ParamField path="stream" type="bytes, bytearray, or BytesIO">
+  A memory area containing the raw file data. Use this to open a document from memory rather than a file path.
+</ParamField>
+
+<ParamField path="filetype" type="string">
+  Explicit file type hint. Only needed when content inspection fails — for example, when opening a plain-text format from memory without an extension.
+</ParamField>
+
+<ParamField path="rect" type="rect_like">
+  Desired page size for reflowable documents (EPUB, HTML). Must be a non-empty finite rectangle with top-left at `(0, 0)`.
+</ParamField>
+
+<ParamField path="width" type="float">
+  Page width for reflowable documents. Used together with `height` as an alternative to `rect`.
+</ParamField>
+
+<ParamField path="height" type="float">
+  Page height for reflowable documents. Used together with `width` as an alternative to `rect`.
+</ParamField>
+
+<ParamField path="fontsize" type="float" default="11">
+  Default font size for reflowable documents. Ignored if neither `rect` nor `width`/`height` are specified.
+</ParamField>
+
+```python
+# Open from file
+doc = pymupdf.open("report.pdf")
+
+# Open from memory
+data = open("report.pdf", "rb").read()
+doc = pymupdf.open(stream=data, filetype="pdf")
+
+# Create a new empty PDF
+doc = pymupdf.open()
+
+# Open EPUB with custom page size
+doc = pymupdf.open("book.epub", rect=pymupdf.Rect(0, 0, 400, 600), fontsize=12)
+```
+
+---
+
+## Page access
+
+### `load_page(page_id)` → `Page`
+
+Creates a `Page` object for further processing. This is the primary way to access individual pages.
+
+<ParamField path="page_id" type="int or tuple">
+  A zero-based page number (negative values count from the end, so `-1` loads the last page), or a `(chapter, pno)` tuple for EPUB documents.
+</ParamField>
+
+<ResponseField name="returns" type="Page">
+  A `Page` object ready for rendering, text extraction, and other operations.
+</ResponseField>
+
+```python
+page = doc.load_page(0)       # first page
+page = doc.load_page(-1)      # last page
+page = doc[3]                 # equivalent index notation
+```
+
+### `pages(start, stop, step)` → `generator`
+
+A generator over a range of pages, analogous to Python's `range()`.
+
+<ParamField path="start" type="int" default="0">
+  First page number to yield.
+</ParamField>
+
+<ParamField path="stop" type="int" default="page_count">
+  Stop before this page number.
+</ParamField>
+
+<ParamField path="step" type="int" default="1">
+  Step between pages.
+</ParamField>
+
+```python
+for page in doc.pages(0, 10, 2):   # pages 0, 2, 4, 6, 8
+    pix = page.get_pixmap()
+```
+
+---
+
+## Text and rendering
+
+### `get_page_text(pno, output, flags, textpage, sort)` → `str`
+
+Extracts the text of a page by page number. Equivalent to `doc[pno].get_text(...)`.
+
+<ParamField path="pno" type="int" required>
+  Zero-based page number.
+</ParamField>
+
+<ParamField path="output" type="string" default='"text"'>
+  Output format. One of `"text"`, `"blocks"`, `"words"`, `"html"`, `"xhtml"`, `"xml"`, `"dict"`, `"json"`, `"rawdict"`, `"rawjson"`.
+</ParamField>
+
+<ParamField path="flags" type="int" default="3">
+  Bit flags controlling text extraction behavior (see `TextPreserve` constants).
+</ParamField>
+
+<ParamField path="sort" type="bool" default="False">
+  Sort output by vertical then horizontal coordinates.
+</ParamField>
+
+<ResponseField name="returns" type="str, list, or dict">
+  Page text content in the requested format.
+</ResponseField>
+
+### `get_page_pixmap(pno, matrix, dpi, colorspace, clip, alpha, annots)` → `Pixmap`
+
+Renders a page to a `Pixmap` by page number. Equivalent to `doc[pno].get_pixmap(...)`.
+
+<ParamField path="pno" type="int" required>
+  Zero-based page number.
+</ParamField>
+
+<ParamField path="matrix" type="matrix_like" default="Identity">
+  Transformation matrix controlling scale, rotation, and shear.
+</ParamField>
+
+<ParamField path="dpi" type="int">
+  Desired resolution in dots per inch. When set, overrides `matrix`.
+</ParamField>
+
+<ParamField path="colorspace" type="str or Colorspace" default="csRGB">
+  Output colorspace: `"GRAY"`, `"RGB"`, or `"CMYK"`.
+</ParamField>
+
+<ParamField path="clip" type="rect_like">
+  Restrict rendering to this rectangle.
+</ParamField>
+
+<ParamField path="alpha" type="bool" default="False">
+  Include an alpha (transparency) channel.
+</ParamField>
+
+<ParamField path="annots" type="bool" default="True">
+  Whether to render annotations.
+</ParamField>
+
+<ResponseField name="returns" type="Pixmap">
+  Rasterized image of the page.
+</ResponseField>
+
+---
+
+## Table of contents
+
+### `get_toc(simple)` → `list`
+
+Returns the document's table of contents as a list of entries.
+
+<ParamField path="simple" type="bool" default="True">
+  If `True`, each entry is `[level, title, page]`. If `False`, a fourth element — a `dict` with destination details — is included.
+</ParamField>
+
+<ResponseField name="returns" type="list">
+  A list of lists. Each entry is `[level, title, page]` or `[level, title, page, dest_dict]` where `level` is the hierarchy depth (1 = top), `title` is a string, and `page` is 1-based (or `-1` if no destination).
+</ResponseField>
+
+```python
+toc = doc.get_toc()
+for level, title, page in toc:
+    print(f"{'  ' * (level-1)}{title} — p.{page}")
+```
+
+### `set_toc(toc, collapse)` → `int`
+
+PDF only. Replaces the entire table of contents with the provided entries.
+
+<ParamField path="toc" type="list or None" required>
+  A list of `[level, title, page]` or `[level, title, page, dest]` entries. Use `None` or `[]` to remove the TOC entirely.
+</ParamField>
+
+<ParamField path="collapse" type="int" default="1">
+  Hierarchy levels beyond this value are initially collapsed. Use `0` or `None` to show all entries expanded.
+</ParamField>
+
+<ResponseField name="returns" type="int">
+  Number of inserted or deleted items.
+</ResponseField>
+
+---
+
+## Document manipulation
+
+### `select(sequence)`
+
+PDF only. Keeps only the pages whose numbers appear in `sequence`. Pages not listed are deleted from memory.
+
+<ParamField path="sequence" type="list or sequence of int" required>
+  Zero-based page numbers to retain. Numbers may repeat (duplicating pages) and appear in any order.
+</ParamField>
+
+```python
+# Keep only even-numbered pages
+doc.select(range(0, doc.page_count, 2))
+```
+
+### `insert_pdf(docsrc, from_page, to_page, start_at, rotate, links, annots, widgets, show_progress, final)`
+
+PDF only. Copies a range of pages from another PDF document into this one.
+
+<ParamField path="docsrc" type="Document" required>
+  An open PDF document (must be a different object from `self`, but may reference the same file).
+</ParamField>
+
+<ParamField path="from_page" type="int" default="-1">
+  First page to copy from `docsrc` (zero-based). Default is `0`.
+</ParamField>
+
+<ParamField path="to_page" type="int" default="-1">
+  Last page to copy (inclusive). Default is the last page of `docsrc`.
+</ParamField>
+
+<ParamField path="start_at" type="int" default="-1">
+  Target insertion position. Default (`-1`) appends pages at the end.
+</ParamField>
+
+<ParamField path="rotate" type="int" default="-1">
+  Rotate all copied pages by this many degrees (must be a multiple of 90).
+</ParamField>
+
+<ParamField path="links" type="bool" default="True">
+  Copy internal and external links. Named links and links pointing outside the copied range are always excluded.
+</ParamField>
+
+<ParamField path="annots" type="bool" default="True">
+  Copy annotations.
+</ParamField>
+
+<ParamField path="widgets" type="bool" default="True">
+  Copy form fields (widgets). Turns the target into a Form PDF if `True`.
+</ParamField>
+
+```python
+src = pymupdf.open("source.pdf")
+doc = pymupdf.open("target.pdf")
+doc.insert_pdf(src, from_page=2, to_page=9, start_at=0)
+doc.save("merged.pdf")
+```
+
+---
+
+## Saving
+
+### `save(filename, garbage, deflate, incremental, encryption, permissions, owner_pw, user_pw, ...)`
+
+PDF only. Saves the document to a file or file-like object.
+
+<ParamField path="filename" type="str, Path, or file object" required>
+  Destination file path or an already-opened file object (including `io.BytesIO()`).
+</ParamField>
+
+<ParamField path="garbage" type="int" default="0">
+  Garbage collection level: `0` = none, `1` = remove unused objects, `2` = compact xref table, `3` = merge duplicates, `4` = also check stream objects.
+</ParamField>
+
+<ParamField path="deflate" type="bool" default="False">
+  Compress uncompressed streams.
+</ParamField>
+
+<ParamField path="incremental" type="bool" default="False">
+  Save only changes (delta save). Only valid when saving to the same filename; cannot be combined with `garbage` or `linear`.
+</ParamField>
+
+<ParamField path="encryption" type="int" default="PDF_ENCRYPT_NONE">
+  Encryption method. See `pymupdf.PDF_ENCRYPT_*` constants.
+</ParamField>
+
+<ParamField path="permissions" type="int" default="-1">
+  Permission flags for the saved document. See `pymupdf.PDF_PERM_*` constants. Default grants all permissions.
+</ParamField>
+
+<ParamField path="owner_pw" type="str">
+  Owner password (max 40 characters).
+</ParamField>
+
+<ParamField path="user_pw" type="str">
+  User password (max 40 characters).
+</ParamField>
+
+<ParamField path="linear" type="bool" default="False">
+  Save a linearized (web-optimized) PDF.
+</ParamField>
+
+<ParamField path="pretty" type="bool" default="False">
+  Prettify the PDF source for readability.
+</ParamField>
+
+```python
+doc.save("output.pdf", garbage=3, deflate=True)
+
+# Incremental save (preserves digital signatures)
+doc.save(doc.name, incremental=True, encryption=pymupdf.PDF_ENCRYPT_KEEP)
+```
+
+### `tobytes(garbage, deflate, encryption, ...)` → `bytes`
+
+PDF only. Writes the document to a `bytes` object in memory. Accepts the same parameters as `save()` except `filename` and `incremental`.
+
+<ResponseField name="returns" type="bytes">
+  Complete PDF file as a bytes object.
+</ResponseField>
+
+```python
+pdf_bytes = doc.tobytes(garbage=3, deflate=True)
+with open("output.pdf", "wb") as f:
+    f.write(pdf_bytes)
+```
+
+---
+
+## Authentication
+
+### `authenticate(password)` → `int`
+
+Decrypts the document using the given password. Sets `is_encrypted` to `False` on success.
+
+<ParamField path="password" type="str" required>
+  Owner or user password string.
+</ParamField>
+
+<ResponseField name="returns" type="int">
+  `0` if authentication failed. On success: `1` = no passwords set, `2` = authenticated with user password, `4` = authenticated with owner password, `6` = both passwords match.
+</ResponseField>
+
+```python
+doc = pymupdf.open("protected.pdf")
+if doc.needs_pass:
+    result = doc.authenticate("secret")
+    if result == 0:
+        raise ValueError("Wrong password")
+```
+
+---
+
+## Low-level PDF access
+
+### `xref_set_key(xref, key, value)`
+
+PDF only. Sets (adds, updates, or deletes) a key in a PDF dictionary object identified by its cross-reference number.
+
+<Warning>
+  This is an expert-level function. Incorrect use can corrupt a PDF. Consult the Adobe PDF specification before modifying object dictionaries directly.
+</Warning>
+
+<ParamField path="xref" type="int" required>
+  The cross-reference number of the PDF object. Use `-1` to target the PDF trailer dictionary.
+</ParamField>
+
+<ParamField path="key" type="str" required>
+  The PDF key name (without the leading `/`). Supports path notation like `"Resources/ExtGState"`.
+</ParamField>
+
+<ParamField path="value" type="str" required>
+  The new value formatted as a PDF string. Use `"null"` to remove a key. Use `pymupdf.get_pdf_str()` to safely format string values.
+</ParamField>
+
+```python
+xref = doc.page_xref(0)
+doc.xref_set_key(xref, "Rotate", "90")
+```
+
+### `xref_get_key(xref, key)` → `tuple`
+
+PDF only. Returns the type and string-formatted value of a PDF dictionary key.
+
+<ParamField path="xref" type="int" required>
+  Cross-reference number of the object. Use `-1` for the PDF trailer.
+</ParamField>
+
+<ParamField path="key" type="str" required>
+  The PDF key name (case-sensitive), must exist in the object.
+</ParamField>
+
+<ResponseField name="returns" type="tuple">
+  A `(type, value)` tuple where `type` is one of `"xref"`, `"array"`, `"dict"`, `"int"`, `"float"`, `"null"`, `"bool"`, `"name"`, `"string"`.
+</ResponseField>
+
+---
+
+## Closing
+
+### `close()`
+
+Releases all resources associated with the document. If opened from a file, the file is also closed. Equivalent to `del doc` or assigning `doc = None`.
+
+```python
+doc.close()
+```

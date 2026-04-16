@@ -1,0 +1,261 @@
+---
+title: "Build RAG pipelines with PyMuPDF and LangChain"
+description: "Step-by-step guide to building retrieval-augmented generation pipelines using PyMuPDF with LangChain's PyMuPDFLoader and LlamaIndex document readers."
+keywords: ["RAG", "PyMuPDF", "LangChain", "LlamaIndex", "PyMuPDFLoader", "retrieval-augmented generation", "PDF chunking"]
+---
+
+Retrieval-augmented generation (RAG) systems answer questions by retrieving relevant passages from a document corpus and passing them to an LLM as context. The quality of every answer ultimately depends on the quality of the text extracted from source documents — garbled text, incorrect reading order, or missing table content all degrade retrieval and generation. PyMuPDF's accurate, layout-aware extraction makes it a reliable choice at the ingestion stage of a RAG pipeline.
+
+## What RAG is and why document loading matters
+
+A typical RAG pipeline has four stages: **load**, **chunk**, **embed**, and **retrieve**. The load stage converts raw documents into text. Errors introduced here — merged columns, dropped tables, broken reading order — cannot be corrected by later stages. PyMuPDF handles complex layouts accurately and exposes the document structure (headings, tables, images) that enables smarter chunking strategies downstream.
+
+<Info>
+  **RAG pipeline stages**: Load documents → Chunk text → Embed chunks → Store in vector DB → Retrieve relevant chunks → Generate answer with LLM
+</Info>
+
+## Using LangChain's PyMuPDFLoader
+
+LangChain ships a dedicated `PyMuPDFLoader` that wraps PyMuPDF. It requires the `langchain-community` package.
+
+<Steps>
+  <Step title="Install dependencies">
+    ```bash
+    pip install pymupdf langchain-community
+    ```
+  </Step>
+  <Step title="Load a PDF">
+    ```python
+    from langchain_community.document_loaders import PyMuPDFLoader
+
+    loader = PyMuPDFLoader("example.pdf")
+    data = loader.load()
+    ```
+
+    `data` is a list of LangChain `Document` objects, one per page. Each document has a `page_content` string and a `metadata` dictionary containing the file name, page number, and other PDF metadata.
+  </Step>
+  <Step title="Inspect the loaded documents">
+    ```python
+    print(f"Loaded {len(data)} pages")
+    print(data[0].page_content[:500])
+    print(data[0].metadata)
+    ```
+  </Step>
+  <Step title="Split and embed">
+    Pass the loaded documents to a text splitter before embedding. For plain text output from `PyMuPDFLoader`, a character-based splitter works well:
+
+    ```python
+    from langchain.text_splitter import RecursiveCharacterTextSplitter
+
+    splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+    chunks = splitter.split_documents(data)
+
+    print(f"Split into {len(chunks)} chunks")
+    ```
+  </Step>
+</Steps>
+
+## Using Markdown chunking with pymupdf4llm and LangChain
+
+For richer chunk boundaries that follow document structure, convert to Markdown first using pymupdf4llm and then apply a Markdown-aware splitter. This is "Level 3" chunking — splits happen at heading and paragraph boundaries rather than arbitrary character positions.
+
+<Steps>
+  <Step title="Install dependencies">
+    ```bash
+    pip install pymupdf4llm langchain-community
+    ```
+  </Step>
+  <Step title="Convert PDF to Markdown">
+    ```python
+    import pymupdf4llm
+
+    md_text = pymupdf4llm.to_markdown("input.pdf")
+    ```
+  </Step>
+  <Step title="Split using MarkdownTextSplitter">
+    ```python
+    from langchain.text_splitter import MarkdownTextSplitter
+
+    splitter = MarkdownTextSplitter(chunk_size=40, chunk_overlap=0)
+    chunks = splitter.create_documents([md_text])
+
+    print(f"Created {len(chunks)} chunks")
+    ```
+  </Step>
+</Steps>
+
+<Tip>
+  Markdown chunking respects heading hierarchy. A chunk will not start mid-paragraph or mid-table, which leads to more coherent context windows and higher retrieval precision.
+</Tip>
+
+## Using LlamaIndex with pymupdf4llm
+
+LlamaIndex provides two integration paths: the `PyMuPDFReader` from `llama-index-readers-file`, and the `LlamaMarkdownReader` from pymupdf4llm itself.
+
+<Tabs>
+  <Tab title="PyMuPDFReader">
+    The `PyMuPDFReader` is LlamaIndex's own integration. Install the reader package and use it directly:
+
+    ```python
+    from llama_index.readers.file import PyMuPDFReader
+
+    loader = PyMuPDFReader()
+    documents = loader.load(file_path="example.pdf")
+
+    print(f"Loaded {len(documents)} document(s)")
+    ```
+  </Tab>
+  <Tab title="LlamaMarkdownReader">
+    The `LlamaMarkdownReader` from pymupdf4llm converts to Markdown first, then wraps each page as a LlamaIndex `Document`. This gives you the full pymupdf4llm layout pipeline:
+
+    ```python
+    import pymupdf4llm
+
+    llama_reader = pymupdf4llm.LlamaMarkdownReader()
+    llama_docs = llama_reader.load_data("input.pdf")
+
+    # One Document per page
+    for doc in llama_docs:
+        print(doc.text[:200])
+    ```
+  </Tab>
+</Tabs>
+
+## Chunking strategies for PDFs
+
+The best chunking strategy depends on document structure. PyMuPDF and pymupdf4llm expose the layout information needed to implement any of the following approaches.
+
+<AccordionGroup>
+  <Accordion title="Page-level chunks">
+    The simplest approach: one chunk per page. Works well for short, dense documents where each page covers a single topic. Use `page_chunks=True` with pymupdf4llm:
+
+    ```python
+    import pymupdf4llm
+
+    chunks = pymupdf4llm.to_markdown("input.pdf", page_chunks=True)
+
+    for chunk in chunks:
+        text = chunk["text"]
+        metadata = chunk["metadata"]
+        # embed text, store with metadata
+    ```
+  </Accordion>
+  <Accordion title="Heading-based chunks (Markdown splitter)">
+    Split at Markdown heading boundaries to produce semantically complete sections. This avoids cutting a section introduction from its body:
+
+    ```python
+    import pymupdf4llm
+    from langchain.text_splitter import MarkdownHeaderTextSplitter
+
+    md_text = pymupdf4llm.to_markdown("input.pdf")
+
+    headers_to_split_on = [
+        ("#", "h1"),
+        ("##", "h2"),
+        ("###", "h3"),
+    ]
+    splitter = MarkdownHeaderTextSplitter(headers_to_split_on=headers_to_split_on)
+    chunks = splitter.split_text(md_text)
+    ```
+  </Accordion>
+  <Accordion title="Fixed-size chunks with overlap">
+    Fixed-size chunking with overlap is the most common approach for general-purpose pipelines. Apply it after converting to plain text:
+
+    ```python
+    from langchain_community.document_loaders import PyMuPDFLoader
+    from langchain.text_splitter import RecursiveCharacterTextSplitter
+
+    loader = PyMuPDFLoader("input.pdf")
+    data = loader.load()
+
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=1000,
+        chunk_overlap=200,
+    )
+    chunks = splitter.split_documents(data)
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Handling multi-page documents
+
+For large documents, process pages selectively or use the `show_progress` flag to monitor long-running conversions:
+
+```python
+import pymupdf4llm
+
+# Process only the first 50 pages
+md_text = pymupdf4llm.to_markdown(
+    "large-report.pdf",
+    pages=list(range(50)),
+    show_progress=True,
+)
+```
+
+To process a document in batches and merge results:
+
+```python
+import pymupdf
+import pymupdf4llm
+
+doc = pymupdf.open("large-report.pdf")
+batch_size = 20
+all_chunks = []
+
+for start in range(0, doc.page_count, batch_size):
+    end = min(start + batch_size, doc.page_count)
+    batch_pages = list(range(start, end))
+    chunks = pymupdf4llm.to_markdown(doc, pages=batch_pages, page_chunks=True)
+    all_chunks.extend(chunks)
+
+print(f"Processed {len(all_chunks)} pages total")
+```
+
+<Note>
+  When passing a `pymupdf.Document` object to `to_markdown()`, keep it open across multiple calls. Re-opening the file for each batch adds unnecessary overhead.
+</Note>
+
+## Tips for improving retrieval accuracy
+
+<AccordionGroup>
+  <Accordion title="Exclude repetitive headers and footers">
+    Page numbers, logos, and document titles that repeat on every page dilute embedding quality. Suppress them:
+
+    ```python
+    md_text = pymupdf4llm.to_markdown("input.pdf", header=False, footer=False)
+    ```
+  </Accordion>
+  <Accordion title="Use page metadata for citation">
+    Store page metadata alongside your vector embeddings. When an answer is returned, you can cite the exact document and page:
+
+    ```python
+    chunks = pymupdf4llm.to_markdown("input.pdf", page_chunks=True)
+
+    for chunk in chunks:
+        text = chunk["text"]
+        source = chunk["metadata"]["file_path"]
+        page = chunk["metadata"]["page_number"]
+        # store (text, source, page) in your vector DB
+    ```
+  </Accordion>
+  <Accordion title="Preserve table structure">
+    Tables converted to Markdown retain their row and column relationships, which means embeddings capture the tabular semantics rather than a flat sequence of numbers. pymupdf4llm does this automatically. If your pipeline strips Markdown formatting before embedding, consider keeping tables as structured text or storing table content separately.
+  </Accordion>
+  <Accordion title="Enable OCR for scanned documents">
+    If your corpus includes scanned PDFs or image-based documents, OCR runs automatically by default. For documents where the native text layer is known to be unreliable, force OCR explicitly:
+
+    ```python
+    md_text = pymupdf4llm.to_markdown("scanned-report.pdf", force_ocr=True)
+    ```
+  </Accordion>
+  <Accordion title="Tune chunk size to your embedding model">
+    Most embedding models have a token limit (commonly 512 or 8192 tokens). Set `chunk_size` to stay comfortably within this limit. Overlapping chunks (`chunk_overlap`) help avoid cutting off context at boundaries, but too much overlap increases index size without improving recall.
+  </Accordion>
+</AccordionGroup>
+
+## Further resources
+
+- [Command line RAG chatbot example](https://github.com/pymupdf/RAG/tree/main/examples/country-capitals) — a complete working example using PyMuPDF
+- [Browser-based RAG application with LangChain](https://github.com/pymupdf/RAG/tree/main/examples/GUI) — GUI chatbot built on PyMuPDF and LangChain
+- [LangChain PyMuPDF integration docs](https://python.langchain.com/docs/modules/data_connection/document_loaders/pdf/#using-pymupdf)
+- [LlamaIndex: Building RAG from scratch](https://docs.llamaindex.ai/en/stable/examples/low_level/oss_ingestion_retrieval)

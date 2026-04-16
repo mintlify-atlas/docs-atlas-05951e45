@@ -1,0 +1,248 @@
+---
+title: "Images and graphics rendering in PyMuPDF"
+description: "Learn how PyMuPDF handles image extraction, page rendering via Pixmap, colorspaces, DPI control, and drawing operations on PDF documents."
+---
+
+PyMuPDF provides a complete set of tools for working with visual content: you can render entire pages to raster images, extract individual embedded images, inspect vector drawings, and draw new shapes onto PDF pages. The `Pixmap` class is at the center of rendering, while `Shape` handles programmatic drawing.
+
+## Rendering pages to images
+
+`page.get_pixmap()` renders a page to a `Pixmap` — an in-memory raster image. This is the standard way to produce a PNG, JPEG, or other image from any page.
+
+```python
+import pymupdf
+
+doc  = pymupdf.open("report.pdf")
+page = doc[0]
+
+pix = page.get_pixmap()          # render at default resolution (~72 DPI)
+pix.save("page-0.png")           # save as PNG
+```
+
+## Controlling DPI and scale
+
+You can set the output resolution either with the `dpi` shorthand or by passing a `Matrix` object.
+
+<Tabs>
+  <Tab title="Using dpi">
+    ```python
+    import pymupdf
+
+    doc  = pymupdf.open("report.pdf")
+    page = doc[0]
+
+    # Render at 150 DPI (roughly 2× the default)
+    pix = page.get_pixmap(dpi=150)
+    pix.save("page-150dpi.png")
+    ```
+  </Tab>
+  <Tab title="Using a matrix">
+    ```python
+    import pymupdf
+
+    doc  = pymupdf.open("report.pdf")
+    page = doc[0]
+
+    # Scale by 2× in both dimensions
+    mat = pymupdf.Matrix(2, 2)
+    pix = page.get_pixmap(matrix=mat)
+    pix.save("page-2x.png")
+    ```
+  </Tab>
+</Tabs>
+
+<Note>
+The `dpi` parameter is a convenience shorthand. `dpi=150` is equivalent to `matrix=pymupdf.Matrix(150/72, 150/72)` since the default resolution is 72 DPI.
+</Note>
+
+## Colorspaces
+
+By default, PyMuPDF renders pages in RGB. You can choose a different colorspace to reduce file size or match your output requirements.
+
+```python
+import pymupdf
+
+doc  = pymupdf.open("report.pdf")
+page = doc[0]
+
+# Grayscale rendering — smaller file size
+pix_gray = page.get_pixmap(colorspace=pymupdf.csGRAY)
+pix_gray.save("page-gray.png")
+
+# RGB (default)
+pix_rgb = page.get_pixmap(colorspace=pymupdf.csRGB)
+
+# CMYK — for print workflows
+pix_cmyk = page.get_pixmap(colorspace=pymupdf.csCMYK)
+```
+
+<Tip>
+CMYK pixmaps cannot be saved as PNG or JPEG directly. Convert to RGB first:
+
+```python
+pix_rgb = pymupdf.Pixmap(pymupdf.csRGB, pix_cmyk)
+pix_rgb.save("converted.png")
+```
+</Tip>
+
+## The Pixmap class
+
+A `Pixmap` holds the rendered pixel data and provides methods for saving and format conversion.
+
+### Saving to files
+
+```python
+import pymupdf
+
+doc  = pymupdf.open("report.pdf")
+page = doc[0]
+pix  = page.get_pixmap(dpi=150)
+
+pix.save("output.png")           # PNG
+pix.save("output.jpg")           # JPEG (jpg_quality=95 default)
+pix.save("output.jpg", jpg_quality=80)  # JPEG at lower quality
+pix.save("output.psd")           # Photoshop Document
+```
+
+Supported output formats include: `png`, `jpg`/`jpeg`, `pam`, `pbm`, `pgm`, `pnm`, `ppm`, `ps`, `psd`.
+
+### Converting to bytes
+
+`pix.tobytes()` returns the image as a `bytes` object, which is useful for HTTP responses, in-memory pipelines, or further processing.
+
+```python
+import pymupdf
+
+doc  = pymupdf.open("report.pdf")
+page = doc[0]
+pix  = page.get_pixmap()
+
+png_bytes  = pix.tobytes("png")
+jpeg_bytes = pix.tobytes("jpeg", jpg_quality=85)
+```
+
+### Pixmap attributes
+
+| Attribute | Description |
+|---|---|
+| `pix.width` | Width in pixels |
+| `pix.height` | Height in pixels |
+| `pix.colorspace` | Current colorspace |
+| `pix.alpha` | Whether transparency data is included |
+| `pix.xres`, `pix.yres` | Resolution in DPI |
+| `pix.samples` | Raw pixel bytes |
+| `pix.samples_mv` | `memoryview` of pixel data (faster access) |
+
+## Extracting embedded images from pages
+
+`page.get_images()` returns a list of images referenced by the page. Each item is a tuple containing metadata such as width, height, colorspace, and the internal `xref` identifier needed to extract the actual image data.
+
+```python
+import pymupdf
+
+doc = pymupdf.open("document.pdf")
+
+for page_index in range(len(doc)):
+    page       = doc[page_index]
+    image_list = page.get_images()
+
+    for img in image_list:
+        xref = img[0]  # image cross-reference number
+
+        pix = pymupdf.Pixmap(doc, xref)
+
+        # CMYK images must be converted before saving as PNG
+        if pix.n - pix.alpha > 3:
+            pix = pymupdf.Pixmap(pymupdf.csRGB, pix)
+
+        pix.save(f"page{page_index}-img{xref}.png")
+```
+
+<Note>
+`page.get_images()` lists images in the page's resource dictionary, which may not be identical to the images that are actually displayed. Use `page.get_image_info()` to get only the images that appear in the page's content stream, along with their on-page positions.
+</Note>
+
+## Drawing shapes with the Shape class
+
+For PDF documents, you can draw vector shapes programmatically using `page.new_shape()`. The `Shape` object accumulates drawing commands, and `shape.finish()` + `shape.commit()` apply them to the page.
+
+```python
+import pymupdf
+
+doc  = pymupdf.open()          # new PDF
+page = doc.new_page()          # add a blank page
+
+shape = page.new_shape()
+
+# Draw a rectangle
+shape.draw_rect(pymupdf.Rect(50, 50, 200, 150))
+shape.finish(color=(1, 0, 0), fill=(1, 1, 0), width=2)
+
+# Draw a line
+shape.draw_line(pymupdf.Point(50, 200), pymupdf.Point(300, 200))
+shape.finish(color=(0, 0, 1), width=1)
+
+# Draw a circle
+shape.draw_circle(pymupdf.Point(200, 300), radius=50)
+shape.finish(color=(0, 0.5, 0), fill=(0.8, 1, 0.8), width=1.5)
+
+# Apply all drawing operations to the page
+shape.commit()
+
+doc.save("shapes.pdf")
+```
+
+Available drawing methods on `Shape` and their `Page` shorthand equivalents:
+
+| Method | Description |
+|---|---|
+| `draw_rect(rect)` | Rectangle |
+| `draw_line(p1, p2)` | Straight line |
+| `draw_circle(center, radius)` | Circle |
+| `draw_oval(rect)` | Oval or ellipse |
+| `draw_curve(p1, p2, p3)` | Quadratic Bézier curve |
+| `draw_bezier(p1, p2, p3, p4)` | Cubic Bézier curve |
+| `draw_polyline(points)` | Connected line segments |
+| `draw_sector(center, point, angle)` | Circular sector (pie slice) |
+
+## Inspecting vector drawings on a page
+
+`page.get_drawings()` returns all existing vector graphics (line art) on the page as a list of path dictionaries. This is useful for extracting charts, diagrams, table borders, and other structured graphics.
+
+```python
+import pymupdf
+
+doc   = pymupdf.open("report.pdf")
+page  = doc[0]
+paths = page.get_drawings()
+
+for path in paths:
+    print(f"Type: {path['type']}, Rect: {path['rect']}, "
+          f"Color: {path.get('color')}, Fill: {path.get('fill')}")
+```
+
+Each path dictionary includes:
+
+| Key | Description |
+|---|---|
+| `"type"` | `"s"` (stroke), `"f"` (fill), or `"sf"` (stroke + fill) |
+| `"rect"` | Bounding box of the path |
+| `"color"` | Stroke color as an RGB tuple |
+| `"fill"` | Fill color as an RGB tuple |
+| `"width"` | Line width |
+| `"items"` | List of drawing primitives (lines, curves, rectangles) |
+
+```python
+import pymupdf
+
+doc   = pymupdf.open("report.pdf")
+page  = doc[0]
+paths = page.get_drawings()
+
+# Filter for only filled rectangles (common in charts and tables)
+filled_rects = [
+    p for p in paths
+    if p["type"] in ("f", "sf") and p["fill"] is not None
+]
+print(f"Found {len(filled_rects)} filled rectangles on page 0")
+```

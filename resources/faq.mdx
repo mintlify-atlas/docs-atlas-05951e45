@@ -1,0 +1,197 @@
+---
+title: "PyMuPDF frequently asked questions"
+description: "Answers to common questions about PyMuPDF installation, compatibility, the fitz legacy name, OCR setup, licensing, and common usage patterns."
+keywords: ["FAQ", "fitz", "PyMuPDF install", "Tesseract OCR", "pymupdf4llm", "license", "password PDF", "Python 2"]
+---
+
+This page answers the most commonly asked questions about PyMuPDF. Questions are grouped by topic. For hands-on recipes, see the [How-To Guides](/guides/working-with-text).
+
+<AccordionGroup>
+
+  <Accordion title="Why is the import called `fitz` instead of `pymupdf`?">
+    The `fitz` name is a historical legacy. PyMuPDF's original author named the module after *Fitzroy*, the street where the original MuPDF author worked. When the package was later published to PyPI under the name `pymupdf`, the internal module name was kept as `fitz` for backwards compatibility.
+
+    As of version 1.24.0, `import pymupdf` is the recommended and canonical import. The `fitz` alias continues to work and will be maintained for the foreseeable future, but new code should use `pymupdf`:
+
+    ```python
+    import pymupdf          # recommended
+    import fitz             # legacy alias — still works
+    ```
+
+    <Warning>
+    There is an unrelated package on PyPI literally named `fitz`. If you install both `fitz` and `pymupdf` in the same environment, they will conflict. Uninstall `fitz` and reinstall `pymupdf` if you encounter `ImportError`.
+    </Warning>
+  </Accordion>
+
+  <Accordion title="Does PyMuPDF support Python 2?">
+    No. PyMuPDF requires Python 3. As of version 1.26.5, supported versions are Python 3.9 through 3.14. Python 2 reached end-of-life in January 2020 and is not supported by any current PyMuPDF release.
+
+    If you are maintaining a Python 2 codebase, you will need to either upgrade to Python 3 or use an old pinned version of PyMuPDF, which will not receive security fixes or bug fixes.
+  </Accordion>
+
+  <Accordion title="How do I install Tesseract for OCR?">
+    PyMuPDF integrates Tesseract at the C/C++ level — the Tesseract engine is compiled into MuPDF directly, so you do not need to install the Tesseract Python bindings or call Tesseract as an external process. The only external requirement is Tesseract language data files (tessdata).
+
+    **Linux (Debian/Ubuntu)**
+
+    ```bash
+    sudo apt-get install tesseract-ocr tesseract-ocr-eng
+    # For other languages, e.g. German:
+    sudo apt-get install tesseract-ocr-deu
+    ```
+
+    **macOS**
+
+    ```bash
+    brew install tesseract
+    brew install tesseract-lang  # all language packs
+    ```
+
+    **Docker**
+
+    ```bash
+    apt-get update && apt-get install -y tesseract-ocr tesseract-ocr-eng
+    ```
+
+    Once installed, OCR is invoked through PyMuPDF directly:
+
+    ```python
+    import pymupdf
+
+    doc = pymupdf.open("scanned.pdf")
+    page = doc[0]
+    tp = page.get_textpage_ocr(language="eng")
+    text = page.get_text(textpage=tp)
+    print(text)
+    ```
+
+    <Note>
+    PyMuPDF searches standard system paths for tessdata. If Tesseract is installed in a non-standard location, set the `TESSDATA_PREFIX` environment variable to point to your tessdata directory.
+    </Note>
+  </Accordion>
+
+  <Accordion title="What is the difference between PyMuPDF and pymupdf4llm?">
+    **PyMuPDF** is the core library for opening, reading, and manipulating PDF and other document formats. It provides the full API for text extraction, rendering, annotations, form handling, and more.
+
+    **pymupdf4llm** is a higher-level package built on top of PyMuPDF. Its primary purpose is to convert documents into Markdown text that is well-suited for input to large language models (LLMs) and retrieval-augmented generation (RAG) pipelines. It handles heading detection, table formatting, and multi-column layout — all in one call:
+
+    ```python
+    import pymupdf4llm
+
+    md_text = pymupdf4llm.to_markdown("report.pdf")
+    ```
+
+    pymupdf4llm works entirely locally. It does not call any external AI service or API, and it is fully GDPR-compatible in terms of data processing. It is available as a separate package:
+
+    ```bash
+    pip install pymupdf4llm
+    ```
+  </Accordion>
+
+  <Accordion title="Is PyMuPDF free to use?">
+    PyMuPDF is dual-licensed under the **GNU Affero General Public License v3 (AGPL)** and a **commercial license** from Artifex Software.
+
+    The AGPL allows free use for open-source projects. However, the AGPL requires that if you distribute software that uses PyMuPDF — or provide it as a network service — you must make your own application's source code available under compatible terms.
+
+    If you are building a **commercial product** or **closed-source application**, you need a commercial license from Artifex. This includes using PyMuPDF in a SaaS backend, embedding it in a commercial product, or distributing it in a proprietary application.
+
+    For licensing inquiries, contact [Artifex](https://artifex.com/contact/).
+  </Accordion>
+
+  <Accordion title="How do I open a password-protected PDF?">
+    Open the document normally, then call `Document.authenticate()` with the password before accessing any pages:
+
+    ```python
+    import pymupdf
+
+    doc = pymupdf.open("protected.pdf")
+    if doc.is_encrypted:
+        result = doc.authenticate("secret")
+        if result == 0:
+            raise ValueError("Wrong password — could not decrypt document")
+
+    # Now access pages normally
+    for page in doc:
+        print(page.get_text())
+    ```
+
+    `authenticate()` returns a non-zero value on success and zero on failure. PDFs can have two passwords: a user password (for opening and reading) and an owner password (for editing and permissions). `authenticate()` accepts either one.
+  </Accordion>
+
+  <Accordion title="Can PyMuPDF edit existing PDFs?">
+    Yes. PyMuPDF supports a wide range of PDF editing operations:
+
+    - **Insert or delete pages** — `Document.insert_pdf()`, `Document.delete_page()`
+    - **Add text** — `Page.insert_text()`, `Page.insert_textbox()`, `Page.insert_htmlbox()`
+    - **Insert images** — `Page.insert_image()`
+    - **Draw shapes** — `Page.new_shape()` with lines, rectangles, curves
+    - **Add annotations** — highlights, comments, stamps, redactions
+    - **Create and fill form fields** — `Page.add_widget()`, `Annot.update()`
+    - **Redact content** — `Page.add_redact_annot()` + `Page.apply_redactions()`
+    - **Rewrite images** — `Document.rewrite_images()` for color space conversion or compression
+    - **Merge documents** — `Document.insert_pdf()` from another source
+
+    After editing, save with `Document.save()` or `Document.ez_save()`:
+
+    ```python
+    import pymupdf
+
+    doc = pymupdf.open("input.pdf")
+    page = doc[0]
+    page.insert_text((100, 100), "Hello, world!", fontsize=14)
+    doc.save("output.pdf")
+    ```
+  </Accordion>
+
+  <Accordion title="How does PyMuPDF compare to pypdf or pdfplumber?">
+    PyMuPDF is implemented in Python and C (via MuPDF), giving it substantially better performance than pure-Python libraries. The key differences:
+
+    | Capability | PyMuPDF | pypdf | pdfplumber / pdfminer |
+    |---|---|---|---|
+    | Render pages to image | Yes | No | No |
+    | Extract text | Yes (all formats) | Yes (PDF only) | Yes (PDF only) |
+    | Extract text as Markdown | Yes | No | No |
+    | Extract tables | Yes | No | Yes (PDF only) |
+    | Extract vector graphics | Yes | No | Limited |
+    | Draw vector graphics | Yes | No | No |
+    | Annotations (full) | Yes | Limited | No |
+    | PDF form fields | Create, read, update | Limited, no creation | No |
+    | Encrypted PDFs | Yes | Limited | Limited |
+    | OCR integration | Yes | No | No |
+    | Automatic PDF repair | Yes | No | No |
+    | Merge any document type | Yes | PDF only | PDF only |
+    | CJK character support | Yes | Yes | Yes |
+
+    pdfplumber's table extraction algorithm was ported into PyMuPDF, so PyMuPDF's `find_tables()` method uses the same underlying logic with the performance advantage of the C layer.
+  </Accordion>
+
+  <Accordion title="Where can I get help?">
+    The best places to get help with PyMuPDF are:
+
+    - **GitHub Discussions** — [github.com/pymupdf/PyMuPDF/discussions](https://github.com/pymupdf/PyMuPDF/discussions) — for questions, usage help, and ideas
+    - **Stack Overflow** — tag your question with `pymupdf`
+    - **Official documentation** — [pymupdf.readthedocs.io](https://pymupdf.readthedocs.io)
+
+    When asking for help, include your PyMuPDF version (`pymupdf.__version__`), your Python version, your operating system, and a minimal reproducible example.
+  </Accordion>
+
+  <Accordion title="How do I report a bug?">
+    File a bug report on the [GitHub issue tracker](https://github.com/pymupdf/PyMuPDF/issues).
+
+    A good bug report includes:
+
+    - PyMuPDF version: `python -c "import pymupdf; print(pymupdf.__version__)"`
+    - Python version: `python --version`
+    - Operating system and architecture
+    - A minimal, self-contained code example that reproduces the problem
+    - The actual output or error message
+    - What you expected to happen instead
+
+    If the bug involves a specific PDF, attach or link a minimal version of the file that reproduces the issue. Avoid attaching large or sensitive documents.
+
+    ```bash
+    pip show pymupdf   # shows version, install location
+    ```
+  </Accordion>
+
+</AccordionGroup>

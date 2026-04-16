@@ -1,0 +1,97 @@
+---
+title: "PyMuPDF: high-performance Python PDF library"
+description: "PyMuPDF is a Python library built on MuPDF for working with PDF, XPS, EPUB, MOBI, and 20+ other document formats. Learn what it offers and when to use it."
+---
+
+PyMuPDF is a high-performance Python library for data extraction, analysis, conversion, and manipulation of PDF and other document formats. Built as Python bindings over [MuPDF](https://mupdf.com/) — a lightweight, battle-tested rendering engine — PyMuPDF gives you fast, low-level access to document internals from clean, idiomatic Python.
+
+## What is MuPDF?
+
+MuPDF is a C library developed and maintained by [Artifex Software](https://artifex.com). It powers PDF rendering in many applications and is known for its speed, small footprint, and standards compliance. PyMuPDF wraps MuPDF's functionality in a Python API, so you get the performance of C without writing C code.
+
+Both PyMuPDF and MuPDF are developed and maintained by Artifex Software.
+
+## Supported document formats
+
+PyMuPDF can open and work with a wide range of file types:
+
+| Category | Formats |
+|---|---|
+| PDF & variants | PDF, FDF |
+| eBook | EPUB, MOBI, FB2 |
+| Comic book | CBZ, CBR |
+| Other document | XPS, OpenXPS |
+| Text & markup | TXT, SVG, HTML, XML |
+| Image formats | PNG, JPEG, TIFF, BMP, GIF, PNM, and more |
+
+For the complete list, see [Supported Formats](/resources/supported-formats).
+
+## What you can do with PyMuPDF
+
+<CardGroup cols={2}>
+  <Card title="Text extraction" icon="font" href="/guides/working-with-text">
+    Extract plain text, rich text, HTML, JSON, or Markdown from any supported document. Get character-level position data, search for strings, and identify text blocks.
+  </Card>
+  <Card title="Page rendering" icon="image" href="/guides/working-with-images">
+    Render document pages to raster images (PNG, JPEG, TIFF, and more) or vector SVG output. Control DPI, color space, rotation, and transparency.
+  </Card>
+  <Card title="Annotations" icon="pen-to-square" href="/guides/annotations">
+    Read, add, and modify PDF annotations including highlights, comments, shapes, redactions, and form fields.
+  </Card>
+  <Card title="Table extraction" icon="table" href="/guides/tables">
+    Detect and extract structured table data from PDF pages without external dependencies.
+  </Card>
+  <Card title="OCR integration" icon="eye" href="/guides/ocr">
+    Run Tesseract OCR on image-based pages and scanned documents to extract machine-readable text.
+  </Card>
+  <Card title="LLM & RAG pipelines" icon="brain" href="/llm/overview">
+    Export documents to Markdown with pymupdf4llm for use with LangChain, LlamaIndex, and other AI frameworks.
+  </Card>
+</CardGroup>
+
+## Key capabilities
+
+**PDF manipulation** — PyMuPDF is the only format that supports full read-write access. You can insert, delete, copy, and reorder pages; merge and split documents; add text, images, and watermarks; encrypt and decrypt; and embed arbitrary file attachments.
+
+**Format conversion** — Convert any supported document to PDF using `Document.convert_to_pdf()`. Convert PDF pages to images, SVG, or HTML. Generate PDFs from HTML source using the `Story` class.
+
+**Performance** — Because PyMuPDF calls into compiled C code, it is significantly faster than pure-Python PDF libraries for most operations. Rendering, text extraction, and page manipulation are all handled natively by MuPDF.
+
+**Minimal dependencies** — There are no mandatory external dependencies. Optional packages (Tesseract, fontTools, pymupdf-fonts) unlock additional features but are not required for core functionality.
+
+## License
+
+PyMuPDF is available under two licenses:
+
+- **AGPL 3.0** (open source) — free to use in open-source projects that also publish their source code under AGPL.
+- **Commercial license** — required for proprietary or closed-source applications. Contact [Artifex](https://artifex.com/contact/pymupdf-inquiry.php) for details.
+
+<Note>
+  If your application is not open source, you need a commercial license. The AGPL requires that any software using PyMuPDF also be released under AGPL-compatible terms.
+</Note>
+
+## Importing PyMuPDF
+
+The library is imported as `pymupdf`:
+
+```python
+import pymupdf
+
+print(pymupdf.__doc__)
+# PyMuPDF 1.x.x: Python bindings for the MuPDF 1.x.x library.
+```
+
+<Note>
+  Older code may use `import fitz` — the historical import name for PyMuPDF. The `fitz` alias still works, but `import pymupdf` is preferred. See the [note on the fitz name](/quickstart#the-fitz-legacy-name) for details.
+</Note>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Install PyMuPDF" icon="download" href="/installation">
+    Install PyMuPDF with pip. No external dependencies required for core features.
+  </Card>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Open a document, extract text, and render pages to images in under 5 minutes.
+  </Card>
+</CardGroup>

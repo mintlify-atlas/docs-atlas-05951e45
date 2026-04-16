@@ -1,0 +1,191 @@
+---
+title: "Extract and search text with PyMuPDF"
+description: "How to extract plain text, structured blocks, and words from PDFs in PyMuPDF. Covers search, redaction, text insertion, and formatting-aware extraction."
+---
+
+PyMuPDF gives you several complementary ways to get text out of a document — from a simple string dump of every page to a fully structured dictionary that preserves font, color, and bounding-box information for every character. This guide walks through each approach and shows you how to search, insert, and redact text as well.
+
+## Extracting plain text
+
+The quickest way to get all the text from a document is to call `page.get_text()` on every page and join the results. The snippet below writes the full document text to a `.txt` file, using a form-feed character (`\f`) between pages.
+
+```python
+import sys, pathlib, pymupdf
+
+fname = sys.argv[1]
+with pymupdf.open(fname) as doc:
+    text = chr(12).join([page.get_text() for page in doc])
+
+pathlib.Path(fname + ".txt").write_bytes(text.encode())
+```
+
+<Note>
+The output reflects the internal storage order of the PDF, which may not match visual reading order. Use the `sort=True` parameter to re-order output from top-left to bottom-right.
+</Note>
+
+## Extracting text blocks with coordinates
+
+`page.get_text("blocks")` returns a list of tuples — one per text block — where each tuple contains `(x0, y0, x1, y1, text, block_no, block_type)`. The bounding-box coordinates let you re-establish reading order or find text within a specific area.
+
+```python
+import pymupdf
+
+doc = pymupdf.open("example.pdf")
+page = doc[0]
+
+blocks = page.get_text("blocks", sort=True)
+for block in blocks:
+    x0, y0, x1, y1, text, bno, btype = block
+    if btype == 0:  # text block (type 1 is image)
+        print(f"Block at ({x0:.1f}, {y0:.1f}): {text.strip()[:60]}")
+```
+
+## Extracting words with bounding boxes
+
+`page.get_text("words")` splits text into individual words. Each word is returned as `(x0, y0, x1, y1, word, block_no, line_no, word_no)`. This is useful for searching partial strings or building selection rectangles around specific tokens.
+
+```python
+import pymupdf
+
+doc = pymupdf.open("example.pdf")
+page = doc[0]
+
+words = page.get_text("words")
+for w in words:
+    print(f"{w[4]:20s}  bbox=({w[0]:.0f},{w[1]:.0f},{w[2]:.0f},{w[3]:.0f})")
+```
+
+## Searching for text
+
+`page.search_for()` returns a list of `Rect` objects — one per occurrence of the search string. Pass `quads=True` to get `Quad` objects instead, which is important when page rotation is non-zero or text is not axis-aligned.
+
+```python
+import pymupdf
+
+doc = pymupdf.open("example.pdf")
+page = doc[0]
+
+rects = page.search_for("invoice")
+for rect in rects:
+    print(f"Found at: {rect}")
+
+# For tilted text, use quads=True
+quads = page.search_for("total", quads=True)
+page.add_highlight_annot(quads[0])
+doc.save("highlighted.pdf")
+```
+
+<Tip>
+`search_for` is case-insensitive by default and handles hyphenation at line breaks automatically.
+</Tip>
+
+## Getting structured text as a dict
+
+`page.get_text("dict")` returns a nested Python dictionary that mirrors the full text-object hierarchy: blocks → lines → spans → characters. Each level carries its own bounding box, font information, and other metadata.
+
+```python
+import pymupdf
+
+doc = pymupdf.open("example.pdf")
+page = doc[0]
+
+data = page.get_text("dict", flags=pymupdf.TEXTFLAGS_TEXT)
+
+for block in data["blocks"]:
+    if block["type"] != 0:
+        continue  # skip image blocks
+    for line in block["lines"]:
+        for span in line["spans"]:
+            text = span["text"]
+            color = pymupdf.sRGB_to_rgb(span["color"])
+            font = span["font"]
+            size = span["size"]
+            print(f"[{font} {size}pt color={color}] {text}")
+```
+
+## Inserting text onto pages
+
+Use `page.insert_text()` to write lines of text starting at a point, or `page.insert_textbox()` to flow text into a rectangle with alignment control.
+
+<CodeGroup>
+
+```python insert_text
+import pymupdf
+
+doc = pymupdf.open()
+page = doc.new_page()
+
+p = pymupdf.Point(50, 72)  # bottom-left of first character
+rc = page.insert_text(
+    p,
+    "Some text,\nspread across\nseveral lines.",
+    fontname="helv",
+    fontsize=11,
+    rotate=0,
+)
+print(f"{rc} lines written on page {page.number}")
+doc.save("text.pdf")
+```
+
+```python insert_textbox
+import pymupdf
+
+doc = pymupdf.open()
+page = doc.new_page()
+
+rect = pymupdf.Rect(72, 72, 400, 200)
+rc = page.insert_textbox(
+    rect,
+    "Justified text inside a rectangle.",
+    fontname="helv",
+    fontsize=12,
+    align=pymupdf.TEXT_ALIGN_JUSTIFY,
+)
+# rc < 0 means the text did not fit
+doc.save("textbox.pdf")
+```
+
+</CodeGroup>
+
+## Redacting text
+
+Redaction permanently removes text (and optionally the area beneath it). First add a redaction annotation with `page.add_redact_annot()`, then call `page.apply_redactions()` to commit the removal.
+
+```python
+import pymupdf
+
+doc = pymupdf.open("example.pdf")
+page = doc[0]
+
+# Find all occurrences and mark them for redaction
+rects = page.search_for("confidential")
+for rect in rects:
+    page.add_redact_annot(rect, fill=(1, 1, 1))  # fill with white
+
+page.apply_redactions()
+doc.save("redacted.pdf")
+```
+
+<Warning>
+`apply_redactions()` permanently removes content from the page. Save to a new file unless you intend to overwrite the original.
+</Warning>
+
+## Advanced text rendering with TextWriter
+
+`pymupdf.TextWriter` lets you compose text across multiple calls before writing it to a page in one operation, which is more efficient when building pages programmatically.
+
+```python
+import pymupdf
+
+doc = pymupdf.open()
+page = doc.new_page()
+
+tw = pymupdf.TextWriter(page.rect)
+font = pymupdf.Font("helv")
+
+tw.append((50, 100), "Hello, world!", font=font, fontsize=14)
+tw.append((50, 130), "Second line in the same writer.", font=font, fontsize=11)
+
+tw.write_text(page)
+doc.save("textwriter.pdf")
+```

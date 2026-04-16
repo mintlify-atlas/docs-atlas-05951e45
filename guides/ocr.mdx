@@ -1,0 +1,184 @@
+---
+title: "OCR document pages with Tesseract in PyMuPDF"
+description: "How to use PyMuPDF with Tesseract OCR to extract text from scanned PDFs and image-based documents, including language support and quality tips."
+---
+
+PyMuPDF integrates with Tesseract OCR to extract text from scanned documents and image-based PDFs where no selectable text layer exists. OCR is roughly a thousand times slower than standard text extraction, so PyMuPDF is designed to let you run it once per page and cache the result in a `TextPage` object for fast repeated queries.
+
+## Requirements
+
+Tesseract must be installed separately on your system before OCR features will work. PyMuPDF does not bundle Tesseract.
+
+<Steps>
+  <Step title="Install Tesseract">
+    Download and install Tesseract for your platform:
+
+    ```bash
+    # Ubuntu / Debian
+    sudo apt-get install tesseract-ocr
+
+    # macOS (Homebrew)
+    brew install tesseract
+
+    # Windows: download installer from https://github.com/UB-Mannheim/tesseract/wiki
+    ```
+  </Step>
+  <Step title="Install language packs (optional)">
+    The default Tesseract installation includes English. For other languages, install the appropriate data pack:
+
+    ```bash
+    # Ubuntu example: German and French
+    sudo apt-get install tesseract-ocr-deu tesseract-ocr-fra
+    ```
+  </Step>
+  <Step title="Verify Tesseract is on your PATH">
+    ```bash
+    tesseract --version
+    ```
+
+    PyMuPDF finds Tesseract by looking for the `tesseract` executable on the system PATH.
+  </Step>
+</Steps>
+
+## Running OCR on a page
+
+Call `page.get_textpage_ocr()` to OCR a page and get back a `TextPage` object. Pass that object to `page.get_text()` (or any other text method) using the `textpage=` parameter to avoid running OCR again:
+
+```python
+import pymupdf
+
+doc = pymupdf.open("scanned.pdf")
+page = doc[0]
+
+# Run OCR once — this is the slow step
+tp = page.get_textpage_ocr(flags=0, full=True)
+
+# All subsequent text operations reuse the cached TextPage
+text = page.get_text(textpage=tp)
+print(text)
+```
+
+<Note>
+`full=True` OCRs the entire page. Set `full=False` to OCR only detected image regions on the page, which is faster when pages mix text and images.
+</Note>
+
+## Getting text from an OCR result
+
+The `textpage=` parameter is accepted by `page.get_text()`, `page.search_for()`, and other text methods. This means you can use the full extraction API on OCR output:
+
+```python
+import pymupdf
+
+doc = pymupdf.open("scanned.pdf")
+page = doc[0]
+
+tp = page.get_textpage_ocr(full=True)
+
+# Plain text
+text = page.get_text(textpage=tp)
+
+# Word list with bounding boxes
+words = page.get_text("words", textpage=tp)
+
+# Search within OCR result
+hits = page.search_for("invoice", textpage=tp)
+for rect in hits:
+    print(f"Found at {rect}")
+```
+
+## Specifying OCR language
+
+Use the `language=` parameter to pass a Tesseract language code. Separate multiple languages with `+`:
+
+```python
+import pymupdf
+
+doc = pymupdf.open("german-scan.pdf")
+page = doc[0]
+
+# Single language
+tp = page.get_textpage_ocr(language="deu", full=True)
+
+# Multiple languages (e.g. English + French)
+tp_multi = page.get_textpage_ocr(language="eng+fra", full=True)
+
+text = page.get_text(textpage=tp)
+print(text)
+```
+
+<Tip>
+Tesseract language codes follow the ISO 639-2 standard. Common values: `eng` (English), `deu` (German), `fra` (French), `spa` (Spanish), `chi_sim` (Simplified Chinese).
+</Tip>
+
+## Running OCR on a selected area
+
+To OCR only part of a page, render the clip region to a `Pixmap` and run OCR via the Pixmap API. This is useful for targeting a specific table, header, or field:
+
+```python
+import pymupdf
+
+doc = pymupdf.open("scanned.pdf")
+page = doc[0]
+
+# Define the region of interest
+clip = pymupdf.Rect(50, 100, 400, 300)
+
+# Render the clip at high resolution for better accuracy
+mat = pymupdf.Matrix(3, 3)  # 3× zoom
+pix = page.get_pixmap(matrix=mat, clip=clip)
+
+# Ensure RGB, no alpha
+if pix.colorspace != pymupdf.csRGB or pix.alpha:
+    pix = pymupdf.Pixmap(pymupdf.csRGB, pix, False)
+
+# Save as a 1-page searchable PDF
+pix.pdfocr_save("clip-ocr.pdf", language="eng")
+```
+
+## Creating a searchable PDF from a scanned image PDF
+
+The following pattern converts a scanned-image PDF into a searchable PDF by rendering each page, running OCR, and collecting the results:
+
+```python
+import pymupdf
+
+src = pymupdf.open("scanned.pdf")
+output = pymupdf.open()
+
+for page in src:
+    # Render page to a Pixmap
+    pix = page.get_pixmap(dpi=200)
+
+    # Ensure RGB, no alpha (required by Tesseract)
+    if pix.alpha:
+        pix = pymupdf.Pixmap(pymupdf.csRGB, pix, False)
+
+    # OCR the pixmap and get a 1-page PDF in memory
+    ocr_pdf_bytes = pix.pdfocr_tobytes(language="eng")
+    ocr_page = pymupdf.open("pdf", ocr_pdf_bytes)
+
+    output.insert_pdf(ocr_page)
+
+output.save("searchable.pdf")
+```
+
+## Performance tips
+
+<AccordionGroup>
+  <Accordion title="Cache the TextPage">
+    Store the result of `page.get_textpage_ocr()` and reuse it for all text operations on that page. Running OCR more than once per page wastes significant time.
+  </Accordion>
+  <Accordion title="Higher DPI improves accuracy">
+    Render images at 200–300 dpi before passing to Tesseract. Very low-resolution images reduce recognition accuracy substantially.
+  </Accordion>
+  <Accordion title="OCR only image areas when possible">
+    Use `full=False` in `get_textpage_ocr()` to restrict OCR to detected image regions. For pages that already have a text layer, skip OCR entirely and use standard `page.get_text()`.
+  </Accordion>
+  <Accordion title="Use the correct language">
+    Specifying the wrong language pack causes poor recognition. Always set `language=` to the dominant language of the scanned content.
+  </Accordion>
+</AccordionGroup>
+
+<Warning>
+Tesseract does not recognize vector graphics or drawn text (line art). Only raster image content can be OCR'd.
+</Warning>

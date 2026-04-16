@@ -1,0 +1,515 @@
+---
+title: "Shape class — PyMuPDF API reference"
+description: "API reference for PyMuPDF's Shape class: drawing lines, curves, rectangles, circles, and polygons on PDF pages with color, fill, and line width control."
+---
+
+The `Shape` class provides a stateful drawing canvas for PDF pages. It lets you combine multiple drawing operations — lines, curves, circles, rectangles, and more — into a single logical shape before applying colors, line widths, and other styling in one `finish()` call. All changes are held in memory until `commit()` writes them to the page's content stream. This batched approach is significantly more efficient than using `Page` draw methods individually when many elements need to be drawn.
+
+<Note>
+`Shape` is PDF-only. Creating a `Shape` for a non-PDF page raises an exception.
+</Note>
+
+## Construction
+
+Create a shape using `Page.new_shape()`:
+
+```python
+import pymupdf
+
+doc = pymupdf.open()
+page = doc.new_page()
+shape = page.new_shape()
+```
+
+## Workflow pattern
+
+```python
+shape = page.new_shape()
+
+# Group 1: draw several elements, then finish them together
+shape.draw_rect(pymupdf.Rect(50, 50, 200, 150))
+shape.draw_circle(pymupdf.Point(300, 100), 40)
+shape.finish(width=2, color=(1, 0, 0), fill=(1, 1, 0))
+
+# Group 2: another set of elements
+shape.draw_line(pymupdf.Point(50, 200), pymupdf.Point(350, 200))
+shape.finish(width=1, color=(0, 0, 1), dashes="[3 2] 0")
+
+# Text insertions (do not need finish())
+shape.insert_text(pymupdf.Point(50, 250), "Hello, PyMuPDF!")
+
+# Write everything to the page
+shape.commit()
+
+doc.save("drawing.pdf")
+```
+
+<Warning>
+If you do not call `commit()`, the shape is discarded and the page remains unchanged.
+</Warning>
+
+---
+
+## Properties
+
+<ResponseField name="doc" type="Document">
+  The document that owns the page. Read-only reference.
+</ResponseField>
+
+<ResponseField name="page" type="Page">
+  The owning page. Read-only reference.
+</ResponseField>
+
+<ResponseField name="draw_cont" type="str">
+  Accumulated PDF command buffer for draw operations since the last `finish()` call. Each `finish()` appends this buffer to `totalcont` and resets `draw_cont`.
+</ResponseField>
+
+<ResponseField name="text_cont" type="str">
+  Accumulated buffer for text insertions. Appended to `totalcont` at `commit()` time, ensuring text always appears on top of drawings.
+</ResponseField>
+
+<ResponseField name="totalcont" type="str">
+  The complete accumulated command buffer that `commit()` writes to the page's content stream.
+</ResponseField>
+
+<ResponseField name="rect" type="Rect">
+  A bounding rectangle that grows to encompass all draw operations so far. Set to `None` at creation and after each `commit()`. Morphing operations are not reflected here.
+</ResponseField>
+
+<ResponseField name="lastPoint" type="Point">
+  The current endpoint of the drawing path. `None` at creation and after each `finish()` or `commit()`.
+</ResponseField>
+
+<ResponseField name="width" type="float">
+  Copy of the page's width in points.
+</ResponseField>
+
+<ResponseField name="height" type="float">
+  Copy of the page's height in points.
+</ResponseField>
+
+---
+
+## Draw methods
+
+All draw methods return the endpoint of the drawn element as a `Point`. Chain them together by using each method's return value as the starting point of the next.
+
+### draw_line
+
+Draw a straight line from `p1` to `p2`.
+
+<ParamField body="p1" type="point_like" required>
+  Starting point.
+</ParamField>
+
+<ParamField body="p2" type="point_like" required>
+  End point.
+</ParamField>
+
+Returns `p2`.
+
+```python
+shape.draw_line(pymupdf.Point(10, 10), pymupdf.Point(200, 10))
+```
+
+---
+
+### draw_polyline
+
+Draw a series of connected line segments through a sequence of points.
+
+<ParamField body="points" type="sequence" required>
+  A sequence of at least two `point_like` objects. To form a closed polygon, make the last point equal to the first.
+</ParamField>
+
+Returns `points[-1]`.
+
+```python
+shape.draw_polyline([
+    pymupdf.Point(50, 50),
+    pymupdf.Point(150, 50),
+    pymupdf.Point(100, 120),
+    pymupdf.Point(50, 50),   # close the triangle
+])
+```
+
+---
+
+### draw_bezier
+
+Draw a cubic Bézier curve from `p1` to `p4` using `p2` and `p3` as control points.
+
+<ParamField body="p1" type="point_like" required>
+  Start point.
+</ParamField>
+
+<ParamField body="p2" type="point_like" required>
+  First control point.
+</ParamField>
+
+<ParamField body="p3" type="point_like" required>
+  Second control point.
+</ParamField>
+
+<ParamField body="p4" type="point_like" required>
+  End point.
+</ParamField>
+
+Returns `p4`.
+
+```python
+shape.draw_bezier(
+    pymupdf.Point(50, 100),
+    pymupdf.Point(100, 20),
+    pymupdf.Point(200, 180),
+    pymupdf.Point(250, 100),
+)
+```
+
+---
+
+### draw_curve
+
+Draw a cubic Bézier curve from `p1` to `p3` using a single helper point `p2`. Control points are generated automatically on the lines `p1→p2` and `p3→p2`, keeping the curvature on one side of the chord. When the angle at `p2` is 90°, the result is a quarter ellipse.
+
+<ParamField body="p1" type="point_like" required>
+  Start point.
+</ParamField>
+
+<ParamField body="p2" type="point_like" required>
+  Helper (corner) point.
+</ParamField>
+
+<ParamField body="p3" type="point_like" required>
+  End point.
+</ParamField>
+
+Returns `p3`.
+
+---
+
+### draw_circle
+
+Draw a circle. Drawing starts and ends at `Point(center.x - radius, center.y)` in an anti-clockwise direction.
+
+<ParamField body="center" type="point_like" required>
+  Center of the circle.
+</ParamField>
+
+<ParamField body="radius" type="float" required>
+  Radius in points. Must be positive.
+</ParamField>
+
+Returns `Point(center.x - radius, center.y)`.
+
+```python
+shape.draw_circle(pymupdf.Point(100, 100), radius=50)
+shape.finish(color=(0, 0, 1), fill=(0.9, 0.9, 1))
+```
+
+---
+
+### draw_oval
+
+Draw an ellipse inscribed in a rectangle or quadrilateral. For a square input, the result is a circle. Drawing is anti-clockwise, starting and ending at the midpoint of the left edge.
+
+<ParamField body="tetra" type="rect_like or quad_like" required>
+  Bounding rectangle or quadrilateral for the ellipse.
+</ParamField>
+
+Returns the midpoint of the left edge.
+
+---
+
+### draw_sector
+
+Draw a circular sector (a "pie slice"), optionally connecting the arc endpoints to the center.
+
+<ParamField body="center" type="point_like" required>
+  Center of the circle.
+</ParamField>
+
+<ParamField body="point" type="point_like" required>
+  One endpoint of the arc.
+</ParamField>
+
+<ParamField body="angle" type="float" required>
+  Sweep angle in degrees. Positive values draw anti-clockwise; negative values draw clockwise.
+</ParamField>
+
+<ParamField body="fullSector" type="bool" default="True">
+  When `True`, draws connecting lines from the arc endpoints to the center (filled pie slice). When `False`, draws only the arc.
+</ParamField>
+
+Returns the other endpoint of the arc.
+
+```python
+# Draw a pie chart
+shape = page.new_shape()
+center = pymupdf.Point(200, 200)
+p0 = pymupdf.Point(250, 200)
+colors = [(1,0,0), (0,1,0), (0,0,1), (1,1,0)]
+beta = 360.0 / len(colors)
+for color in colors:
+    p0 = shape.draw_sector(center, p0, beta, fullSector=True)
+    shape.finish(fill=color, closePath=False)
+shape.commit()
+```
+
+---
+
+### draw_quad
+
+Draw a quadrilateral. Shortcut for `draw_polyline((ul, ll, lr, ur, ul))`. Drawing starts and ends at `quad.ul` in an anti-clockwise direction.
+
+<ParamField body="quad" type="quad_like" required>
+  The quadrilateral to draw.
+</ParamField>
+
+Returns `quad.ul`.
+
+---
+
+### draw_rect
+
+Draw a rectangle. Drawing starts and ends at the top-left corner in an anti-clockwise direction.
+
+<ParamField body="rect" type="rect_like" required>
+  Rectangle position and size on the page.
+</ParamField>
+
+<ParamField body="radius" type="float or tuple" default="None">
+  Corner rounding radius as a fraction of the shorter side. A single float applies uniformly; a `(rx, ry)` tuple applies different radii horizontally and vertically. Range: `0 < radius <= 0.5`. `(0.5, 0.5)` draws an ellipse.
+</ParamField>
+
+Returns the top-left corner of the rectangle.
+
+```python
+shape.draw_rect(pymupdf.Rect(50, 50, 200, 150), radius=0.1)
+shape.finish(color=(0, 0, 0), fill=(0.8, 0.8, 0.8), width=1)
+```
+
+---
+
+### draw_squiggle
+
+Draw a wavy (squiggly) line from `p1` to `p2`. An integer number of complete wave periods is always drawn, with the wave amplitude controlled by `breadth`. The condition `2 * breadth < abs(p2 - p1)` must hold to fit at least one period.
+
+<ParamField body="p1" type="point_like" required>
+  Starting point.
+</ParamField>
+
+<ParamField body="p2" type="point_like" required>
+  End point.
+</ParamField>
+
+<ParamField body="breadth" type="float" default="2">
+  Wave amplitude in points.
+</ParamField>
+
+Returns `p2`.
+
+---
+
+## finish
+
+Apply styling to all draw operations accumulated since the last `finish()` call. Has no effect on text insertions.
+
+<ParamField body="width" type="float" default="1">
+  Stroke (border) line width in points. Specifying `width=0` with a fill color produces a shape with no visible border.
+</ParamField>
+
+<ParamField body="color" type="sequence or float" default="(0,)">
+  Stroke color. A tuple or list of floats: 1 value = GRAY, 3 = RGB, 4 = CMYK. A single float is accepted for GRAY. `None` means no color selection (PDF default black is used).
+</ParamField>
+
+<ParamField body="fill" type="sequence or float" default="None">
+  Fill color in the same format as `color`. `None` means no fill.
+</ParamField>
+
+<ParamField body="lineCap" type="int" default="0">
+  Line end cap style. `0` = flat/sharp, `1` = rounded (semi-circle), `2` = square projection.
+</ParamField>
+
+<ParamField body="lineJoin" type="int" default="0">
+  Line join style. `0` = miter (sharp corner), `1` = rounded, `2` = bevel (cut off).
+</ParamField>
+
+<ParamField body="dashes" type="str" default="None">
+  Dash pattern string in PDF format, e.g. `"[3 4] 0"` for 3-point dashes and 4-point gaps. Use `"[] 0"` or `None` for a solid line.
+</ParamField>
+
+<ParamField body="closePath" type="bool" default="True">
+  Automatically connect the last draw endpoint back to the first draw's starting point with a straight line.
+</ParamField>
+
+<ParamField body="even_odd" type="bool" default="False">
+  Fill rule. `False` uses the nonzero winding number rule; `True` uses the even-odd rule. Only differs visually for complex overlapping shapes.
+</ParamField>
+
+<ParamField body="morph" type="tuple" default="None">
+  A `(fixpoint, matrix)` pair to apply a geometric transformation to the compound drawing. The matrix may not contain translations (`matrix.e == matrix.f == 0`).
+</ParamField>
+
+<ParamField body="stroke_opacity" type="float" default="1">
+  Transparency for stroke colors. `0` = invisible, `1` = fully opaque.
+</ParamField>
+
+<ParamField body="fill_opacity" type="float" default="1">
+  Transparency for fill colors. `0` = invisible, `1` = fully opaque.
+</ParamField>
+
+<ParamField body="oc" type="int" default="0">
+  xref of an OCG or OCMD for conditional visibility.
+</ParamField>
+
+```python
+shape.draw_rect(pymupdf.Rect(50, 50, 250, 150))
+shape.draw_circle(pymupdf.Point(300, 100), 40)
+shape.finish(
+    width=2,
+    color=(0.2, 0.2, 0.8),
+    fill=(0.8, 0.9, 1.0),
+    stroke_opacity=0.9,
+    fill_opacity=0.5,
+)
+```
+
+---
+
+## insert_text
+
+Insert one or more lines of text starting at a given point.
+
+<ParamField body="point" type="point_like" required>
+  Bottom-left position of the first character. The meaning of "bottom-left" rotates with the `rotate` parameter.
+</ParamField>
+
+<ParamField body="text" type="str or sequence" required>
+  Text to insert. A string may contain `\n` newlines; a sequence inserts each item on a new line.
+</ParamField>
+
+<ParamField body="fontsize" type="float" default="11">
+  Font size in points.
+</ParamField>
+
+<ParamField body="fontname" type="str" default="helv">
+  Font reference name. Use a Base-14 name, a `/ReferenceName` for a page-embedded font, or a new name paired with `fontfile`.
+</ParamField>
+
+<ParamField body="fontfile" type="str" default="None">
+  Path to a font file on the system. Embedded in the PDF on save.
+</ParamField>
+
+<ParamField body="color" type="sequence" default="None">
+  Text (fill) color.
+</ParamField>
+
+<ParamField body="rotate" type="int" default="0">
+  Text rotation. Multiples of 90°: `0` (left→right), `90` (bottom→top), `180` (right→left), `270` (top→bottom).
+</ParamField>
+
+<ParamField body="stroke_opacity" type="float" default="1">
+  Transparency for the character border lines (only visible in non-zero render modes).
+</ParamField>
+
+<ParamField body="fill_opacity" type="float" default="1">
+  Transparency for the character fill (i.e., the visible text color).
+</ParamField>
+
+<ParamField body="oc" type="int" default="0">
+  xref of an OCG or OCMD for conditional visibility.
+</ParamField>
+
+Returns the number of lines inserted as an `int`.
+
+```python
+shape.insert_text(
+    pymupdf.Point(72, 100),
+    ["Line one", "Line two", "Line three"],
+    fontsize=12,
+    color=(0, 0, 0),
+)
+shape.commit()
+```
+
+---
+
+## insert_textbox
+
+Insert text into a rectangle, wrapping and fitting it to the available space. Text insertions implicitly invoke a `finish()` operation internally and only require `commit()`.
+
+<ParamField body="rect" type="rect_like" required>
+  Target rectangle. Must be finite and non-empty.
+</ParamField>
+
+<ParamField body="buffer" type="str or sequence" required>
+  Text to insert. Line breaks are respected.
+</ParamField>
+
+<ParamField body="fontsize" type="float" default="11">
+  Font size in points.
+</ParamField>
+
+<ParamField body="fontname" type="str" default="helv">
+  Font reference name.
+</ParamField>
+
+<ParamField body="align" type="int" default="0">
+  Text alignment: `0` = left, `1` = center, `2` = right, `3` = justify. Justify only works with single-byte fonts.
+</ParamField>
+
+<ParamField body="rotate" type="int" default="0">
+  Rotation of text within the rectangle. Multiples of 90°. Text starts in a different corner for each value.
+</ParamField>
+
+<ParamField body="color" type="sequence" default="None">
+  Text fill color.
+</ParamField>
+
+<ParamField body="fill_opacity" type="float" default="1">
+  Transparency for the text fill color.
+</ParamField>
+
+<ParamField body="lineheight" type="float" default="None">
+  Override the line height. When set, line height = `fontsize * lineheight`.
+</ParamField>
+
+<ParamField body="expandtabs" type="int" default="8">
+  Tab stop width for `\t` characters, applied per line.
+</ParamField>
+
+<ParamField body="oc" type="int" default="0">
+  xref of an OCG or OCMD for conditional visibility.
+</ParamField>
+
+Returns a `float`: positive/zero means success (value is the unused vertical space); negative means failure (value is the space deficit — reduce text, increase rect, or reduce font size).
+
+```python
+rc = shape.insert_textbox(
+    pymupdf.Rect(72, 72, 400, 300),
+    "This text will be wrapped to fit inside the rectangle.",
+    fontsize=11,
+    align=0,
+)
+if rc < 0:
+    print("Text did not fit — space deficit:", rc)
+shape.commit()
+```
+
+---
+
+## commit
+
+Write all accumulated drawings and text insertions to the page's content stream. **This method must be called or all work is discarded.**
+
+<ParamField body="overlay" type="bool" default="True">
+  When `True` (default), content is placed in the foreground. When `False`, it is placed in the background behind existing page content.
+</ParamField>
+
+After `commit()`, the shape's buffers are cleared and the object may be reused for the same page.
+
+```python
+shape.commit()        # foreground (default)
+shape.commit(False)   # background
+```

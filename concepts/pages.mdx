@@ -1,0 +1,200 @@
+---
+title: "Pages and page objects in PyMuPDF"
+description: "Understand how PyMuPDF's Page class works, including page dimensions, coordinate systems, content types, and how to iterate and access individual pages."
+---
+
+Every document in PyMuPDF is made up of `Page` objects. The `Page` class provides access to everything on a page — its dimensions, coordinate system, text, images, vector drawings, and annotations — and is the starting point for both reading and writing page content.
+
+## The Page class
+
+`Page` has no independent constructor. You always obtain a page through a parent `Document`:
+
+```python
+import pymupdf
+
+doc = pymupdf.open("report.pdf")
+
+page = doc[0]             # first page, index notation
+page = doc.load_page(0)   # equivalent explicit method
+page = doc[-1]            # last page
+```
+
+The `page.parent` attribute points back to the owning document. If the document is closed, all its page objects become invalid.
+
+## Accessing pages from a document
+
+<Tabs>
+  <Tab title="Single page">
+    ```python
+    import pymupdf
+
+    doc = pymupdf.open("report.pdf")
+    page = doc[4]  # fifth page (0-based)
+    print(page.number)  # 4
+    ```
+  </Tab>
+  <Tab title="All pages">
+    ```python
+    import pymupdf
+
+    doc = pymupdf.open("report.pdf")
+    for page in doc:
+        print(f"Page {page.number} has rect {page.rect}")
+    ```
+  </Tab>
+  <Tab title="Page range">
+    ```python
+    import pymupdf
+
+    doc = pymupdf.open("report.pdf")
+    # Pages 2 through 7 (inclusive)
+    for page in doc.pages(2, 8):
+        print(page.number)
+    ```
+  </Tab>
+</Tabs>
+
+## Page dimensions
+
+PyMuPDF exposes three rectangles for describing page size and visible area.
+
+| Attribute | Description |
+|---|---|
+| `page.rect` | The effective bounding rectangle of the page (reflects rotation) |
+| `page.mediabox` | The full physical page size as defined in the PDF |
+| `page.cropbox` | The visible (cropped) region of the page |
+
+```python
+import pymupdf
+
+doc  = pymupdf.open("report.pdf")
+page = doc[0]
+
+print(page.rect)      # e.g. Rect(0.0, 0.0, 595.0, 842.0)  — A4 portrait
+print(page.mediabox)  # often the same as rect for standard PDFs
+print(page.cropbox)   # may differ if the page is cropped
+```
+
+<Note>
+`page.rect` changes when the page is rotated (it always reflects the current visual orientation), whereas `page.cropbox` does not change with rotation.
+</Note>
+
+## Page rotation
+
+The `rotation` attribute returns the current clockwise rotation in degrees (0, 90, 180, or 270). You can change it on PDF pages.
+
+```python
+import pymupdf
+
+doc  = pymupdf.open("report.pdf")
+page = doc[0]
+
+print(page.rotation)     # e.g. 0 (no rotation)
+
+page.set_rotation(90)    # rotate 90° clockwise (PDF only)
+doc.save("rotated.pdf")
+```
+
+## The coordinate system
+
+PyMuPDF uses MuPDF's coordinate system, which differs from the PDF specification:
+
+- The **origin** `(0, 0)` is at the **top-left** corner of the page.
+- The **x-axis** increases to the right.
+- The **y-axis** increases **downward**.
+
+This is the same orientation as most screen graphics systems, so coordinates returned by PyMuPDF can be used directly for on-screen rendering without conversion.
+
+```python
+import pymupdf
+
+# A rectangle at the top-left of an A4 page
+r = pymupdf.Rect(0, 0, 100, 50)  # x0, y0, x1, y1
+
+doc  = pymupdf.open("report.pdf")
+page = doc[0]
+
+# Clip text extraction to this rectangle
+text = page.get_text(clip=r)
+```
+
+<Warning>
+PDF uses a bottom-left origin with y increasing upward. The `transformation_matrix` and `derotation_matrix` attributes help convert between the two systems when needed.
+</Warning>
+
+### Transformation and derotation matrices
+
+When working with rotated pages, two matrices are available:
+
+```python
+import pymupdf
+
+doc  = pymupdf.open("report.pdf")
+page = doc[0]
+
+# Convert unrotated coordinates to rotated coordinates
+rot_matrix   = page.rotation_matrix
+
+# Convert rotated coordinates back to unrotated coordinates
+derot_matrix = page.derotation_matrix
+```
+
+<Tip>
+All coordinates returned by PyMuPDF methods (such as `get_text`, `get_images`, `get_drawings`) are always in **unrotated** page space. Use `rotation_matrix` if you need to find where a point appears visually on a rotated page.
+</Tip>
+
+## Content types on a page
+
+A page can contain several types of content, each accessible through a dedicated method.
+
+<CardGroup cols={2}>
+  <Card title="Text" icon="text">
+    Paragraphs, headings, and any other character-based content. Accessed via `page.get_text()`.
+  </Card>
+  <Card title="Images" icon="image">
+    Raster images embedded in the document. Accessed via `page.get_images()` or `page.get_image_info()`.
+  </Card>
+  <Card title="Drawings" icon="pen-tool">
+    Vector graphics — lines, rectangles, curves, and filled paths. Accessed via `page.get_drawings()`.
+  </Card>
+  <Card title="Annotations" icon="comment">
+    Highlights, comments, stamps, links, and form fields. Accessed via `page.annots()` and `page.widgets()`.
+  </Card>
+</CardGroup>
+
+## Key page methods overview
+
+| Method | Returns | Description |
+|---|---|---|
+| `page.get_text(output)` | `str` or `dict` | Extract text in various formats |
+| `page.get_pixmap()` | `Pixmap` | Render the page to a raster image |
+| `page.get_drawings()` | `list` | Vector graphics paths on the page |
+| `page.get_images()` | `list` | Images referenced by the page |
+| `page.get_image_info()` | `list` | Image metadata including position |
+| `page.annots()` | generator | Iterate over annotations |
+| `page.search_for(text)` | `list` | Find text locations on the page |
+| `page.find_tables()` | `TableFinder` | Detect and extract tables |
+
+```python
+import pymupdf
+
+doc  = pymupdf.open("report.pdf")
+page = doc[0]
+
+# Render the page at 150 DPI
+pix = page.get_pixmap(dpi=150)
+pix.save("page-0.png")
+
+# Extract all text
+text = page.get_text()
+
+# List all images on the page
+images = page.get_images()
+
+# List all vector drawings
+paths = page.get_drawings()
+
+# Iterate annotations
+for annot in page.annots():
+    print(annot.type, annot.rect)
+```

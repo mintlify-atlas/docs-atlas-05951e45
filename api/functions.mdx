@@ -1,0 +1,429 @@
+---
+title: "Module-level utility functions — PyMuPDF API reference"
+description: "Reference for PyMuPDF's module-level functions: paper sizes, glyph utilities, image profiling, text length calculation, and geometry helpers."
+keywords: ["pymupdf", "functions", "paper size", "image profile", "glyph", "geometry", "utilities"]
+---
+
+PyMuPDF exposes a set of module-level utility functions directly on the `pymupdf` namespace. These cover paper-format lookups, glyph name resolution, image property inspection, text-length calculation, and geometry helpers such as sentinel rectangles and line-to-axis mapping. You do not need to instantiate any class to call them — simply import `pymupdf` and call them directly.
+
+---
+
+## Paper format helpers
+
+These three functions share a common set of supported format strings. Valid names include **A0–A10**, **B0–B10**, **C0–C10**, **Card-4x6**, **Card-5x7**, **Commercial**, **Executive**, **Invoice**, **Ledger**, **Legal**, **Legal-13**, **Letter**, **Monarch**, and **Tabloid-Extra**. Names are case-insensitive. Append **`-L`** for landscape or **`-P`** for portrait (default).
+
+### `paper_size(s)` → `tuple`
+
+Returns the `(width, height)` in points (72 points = 1 inch) for a named paper format.
+
+<ParamField path="s" type="str" required>
+  Paper format string, e.g. `"A4"` or `"letter-l"`.
+</ParamField>
+
+Returns `(-1, -1)` for unknown format names.
+
+```python
+import pymupdf
+
+pymupdf.paper_size("A4")       # (595, 842)
+pymupdf.paper_size("letter-l") # (792, 612)
+pymupdf.paper_size("unknown")  # (-1, -1)
+```
+
+---
+
+### `paper_rect(s)` → `Rect`
+
+Returns a `Rect(0, 0, width, height)` for a named paper format. Delegates to `paper_size()` internally.
+
+<ParamField path="s" type="str" required>
+  Any format name accepted by `paper_size()`.
+</ParamField>
+
+```python
+import pymupdf
+
+pymupdf.paper_rect("letter-l")
+# Rect(0.0, 0.0, 792.0, 612.0)
+```
+
+---
+
+### `paper_sizes()` → `dict`
+
+Returns the full dictionary of predefined paper formats. Keys are lowercase format names (e.g. `"a4"`, `"letter"`). Values are `(width, height)` tuples in points.
+
+```python
+import pymupdf
+
+sizes = pymupdf.paper_sizes()
+print(sizes["a4"])      # (595, 842)
+print(sizes["letter"])  # (612, 792)
+```
+
+<Note>
+  This dictionary is the underlying source consulted by `paper_size()` and `paper_rect()`. You can inspect it to discover all available format names.
+</Note>
+
+---
+
+## Text and glyph utilities
+
+### `get_text_length(text, fontname, fontsize, encoding)` → `float`
+
+Calculates the rendered width in points of a string when displayed using a built-in (Base-14 or CJK) font. This function does not insert text — it only measures.
+
+<ParamField path="text" type="str" required>
+  The string to measure.
+</ParamField>
+
+<ParamField path="fontname" type="str" default='"helv"'>
+  Reserved name of a Base-14 or CJK font. Examples: `"helv"` (Helvetica), `"tiro"` (Times Roman), `"cour"` (Courier).
+</ParamField>
+
+<ParamField path="fontsize" type="float" default="11">
+  Font size in points.
+</ParamField>
+
+<ParamField path="encoding" type="int" default="0">
+  Encoding selector: `0` = Latin (default), `1` = Greek, `2` = Cyrillic. Relevant only for Helvetica, Courier, and Times variants.
+</ParamField>
+
+```python
+import pymupdf
+
+width = pymupdf.get_text_length("Hello, world!", fontname="helv", fontsize=12)
+print(width)  # length in points as a float
+```
+
+<Warning>
+  When sizing a textbox, `insert_textbox()` measures character-by-character. Summing individual character lengths is slightly larger than measuring the full string at once due to rounding. Add a small buffer or measure character-by-character to match.
+</Warning>
+
+---
+
+### `glyph_name_to_unicode(name)` → `int`
+
+Looks up the Unicode code point for a glyph name using the Adobe Glyph List.
+
+<ParamField path="name" type="str" required>
+  A glyph name such as `"Adieresis"` or `"fi"`.
+</ParamField>
+
+Returns `0xFFFD` (65533) for unrecognized names.
+
+```python
+import pymupdf
+
+pymupdf.glyph_name_to_unicode("Adieresis")  # 196  (Ä)
+pymupdf.glyph_name_to_unicode("fi")         # 102  (f — first component)
+pymupdf.glyph_name_to_unicode("bogus")      # 65533
+```
+
+---
+
+### `unicode_to_glyph_name(ch)` → `str`
+
+Returns the Adobe Glyph List name for a Unicode code point.
+
+<ParamField path="ch" type="int" required>
+  Unicode code point, e.g. `ord("Ä")`.
+</ParamField>
+
+```python
+import pymupdf
+
+pymupdf.unicode_to_glyph_name(ord("Ä"))  # "Adieresis"
+pymupdf.unicode_to_glyph_name(ord("ß"))  # "germandbls"
+```
+
+---
+
+### `adobe_glyph_names()` → `list`
+
+Returns the full list of glyph name strings defined in the Adobe Glyph List.
+
+```python
+import pymupdf
+
+names = pymupdf.adobe_glyph_names()
+print(len(names))       # number of defined glyph names
+print("fi" in names)    # True
+```
+
+---
+
+### `adobe_glyph_unicodes()` → `list`
+
+Returns the list of Unicode integers for which a glyph name exists in the Adobe Glyph List.
+
+```python
+import pymupdf
+
+unicodes = pymupdf.adobe_glyph_unicodes()
+print(196 in unicodes)  # True  (Ä)
+```
+
+---
+
+## Image utilities
+
+### `image_profile(stream)` → `dict`
+
+Inspects an image in memory and returns a dictionary of its key properties without requiring any third-party imaging library.
+
+<ParamField path="stream" type="bytes | bytearray | io.BytesIO | file" required>
+  Image data as `bytes`, `bytearray`, `io.BytesIO`, or an already-opened binary file object.
+</ParamField>
+
+Returns `None` on error (no exception is raised).
+
+<ResponseField name="width" type="int">
+  Image width in pixels.
+</ResponseField>
+
+<ResponseField name="height" type="int">
+  Image height in pixels.
+</ResponseField>
+
+<ResponseField name="orientation" type="int">
+  Natural orientation from EXIF data: `0` = undefined, `1` = 0° ccw, `2` = 90° ccw, `3` = 180° ccw, `4` = 270° ccw, plus flip variants 5–8.
+</ResponseField>
+
+<ResponseField name="transform" type="tuple">
+  Orientation matrix as a 6-float tuple corresponding to the EXIF orientation.
+</ResponseField>
+
+<ResponseField name="xres" type="int">
+  Horizontal resolution in DPI.
+</ResponseField>
+
+<ResponseField name="yres" type="int">
+  Vertical resolution in DPI.
+</ResponseField>
+
+<ResponseField name="colorspace" type="int">
+  Number of color components (e.g. `3` for RGB, `4` for CMYK).
+</ResponseField>
+
+<ResponseField name="bpc" type="int">
+  Bits per color component.
+</ResponseField>
+
+<ResponseField name="ext" type="str">
+  Suggested file extension, e.g. `"jpeg"`, `"png"`.
+</ResponseField>
+
+<ResponseField name="cs-name" type="str">
+  Colorspace name, e.g. `"DeviceRGB"`.
+</ResponseField>
+
+```python
+import pymupdf
+
+with open("photo.jpg", "rb") as f:
+    profile = pymupdf.image_profile(f.read())
+
+print(profile)
+# {
+#   'width': 439, 'height': 501, 'orientation': 0,
+#   'transform': (1.0, 0.0, 0.0, 1.0, 0.0, 0.0),
+#   'xres': 96, 'yres': 96, 'colorspace': 3,
+#   'bpc': 8, 'ext': 'jpeg', 'cs-name': 'DeviceRGB'
+# }
+```
+
+<Tip>
+  To inspect an image embedded in a PDF by its xref number, pass the raw stream: `pymupdf.image_profile(doc.xref_stream_raw(xref))`.
+</Tip>
+
+---
+
+## Geometry helpers
+
+### `planish_line(p1, p2)` → `Matrix`
+
+Computes a transformation matrix that maps the line segment from `p1` to `p2` onto the x-axis, such that `p1` maps to `(0, 0)` and `p2` maps to a point at the same distance along the positive x-axis.
+
+<ParamField path="p1" type="point_like" required>
+  Start point of the line.
+</ParamField>
+
+<ParamField path="p2" type="point_like" required>
+  End point of the line.
+</ParamField>
+
+```python
+import pymupdf
+
+p1 = pymupdf.Point(1, 1)
+p2 = pymupdf.Point(4, 5)
+
+print(abs(p2 - p1))  # 5.0  — distance preserved
+
+m = pymupdf.planish_line(p1, p2)
+print(p1 * m)        # Point(0.0, 0.0)
+print(p2 * m)        # Point(5.0, ~0.0)
+print(abs(p2 * m - p1 * m))  # 5.0
+```
+
+---
+
+### `make_table(rect, cols, rows)` → `list`
+
+Splits a rectangle into a grid of equal-sized sub-rectangles. Returns a list of `rows` lists, each containing `cols` `Rect` objects. The union of all sub-rectangles equals the input `rect`.
+
+<ParamField path="rect" type="rect_like" required>
+  The rectangle to divide.
+</ParamField>
+
+<ParamField path="cols" type="int" default="1">
+  Number of columns.
+</ParamField>
+
+<ParamField path="rows" type="int" default="1">
+  Number of rows.
+</ParamField>
+
+```python
+import pymupdf
+
+rect = pymupdf.paper_rect("A4")
+table = pymupdf.make_table(rect, cols=4, rows=3)
+
+# Access cell at row 1, column 2 (0-indexed):
+cell = table[1][2]
+print(cell)  # Rect(...)
+```
+
+<Note>
+  The input rectangle must be finite and non-empty; an empty or infinite rectangle raises `ValueError`.
+</Note>
+
+---
+
+## Sentinel rectangles
+
+These four functions return the canonical boundary-condition rectangles used throughout PyMuPDF. They are functions (not constants) to avoid accidental mutation.
+
+<AccordionGroup>
+  <Accordion title="INFINITE_RECT() and INFINITE_IRECT()">
+    Returns the unique infinite rectangle `Rect(-2147483648.0, -2147483648.0, 2147483520.0, 2147483520.0)`. Every valid finite rectangle is contained within it. `INFINITE_IRECT()` returns the `IRect` equivalent.
+
+    ```python
+    import pymupdf
+
+    inf = pymupdf.INFINITE_RECT()
+    print(inf.is_infinite)  # True
+    ```
+  </Accordion>
+
+  <Accordion title="EMPTY_RECT() and EMPTY_IRECT()">
+    Returns the standard empty/invalid rectangle `Rect(2147483520.0, 2147483520.0, -2147483648.0, -2147483648.0)`. Its top-left and bottom-right corners are swapped. Used as a sentinel in `page.get_text("dict")` bounding boxes when no content is present.
+
+    ```python
+    import pymupdf
+
+    empty = pymupdf.EMPTY_RECT()
+    print(empty.is_empty)    # True
+    print(empty.is_valid)    # False
+    ```
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## PDF string and timestamp helpers
+
+### `get_pdf_now()` → `str`
+
+Returns the current local time as a PDF-compatible timestamp string.
+
+```python
+import pymupdf
+
+pymupdf.get_pdf_now()
+# e.g. "D:20170501121525-04'00'"
+```
+
+The format is `D:YYYYMMDDHHmmSS±HH'MM'` where the trailing offset is the UTC difference for the local timezone.
+
+---
+
+### `get_pdf_str(text)` → `str`
+
+Converts a Python string to a PDF-compatible string literal. Text containing only Latin-1 characters is enclosed in parentheses `(...)` with special characters escaped. Text containing code points above 255 is encoded as UTF-16BE and enclosed in angle brackets `<FEFF...>`.
+
+<ParamField path="text" type="str" required>
+  The string to encode.
+</ParamField>
+
+```python
+import pymupdf
+
+pymupdf.get_pdf_str("Hello (world)")  # "(Hello \\(world\\))"
+pymupdf.get_pdf_str("日本語")          # "<feff65e5672c8a9e>"  (hex UTF-16BE)
+```
+
+---
+
+## Color utilities
+
+### `sRGB_to_pdf(srgb)` → `tuple`
+
+Converts a packed sRGB integer (format `0xRRGGBB`) to a PDF color triple of floats in `[0, 1]`.
+
+```python
+import pymupdf
+
+pymupdf.sRGB_to_pdf(0xFF0000)  # (1.0, 0.0, 0.0)  — red
+pymupdf.sRGB_to_pdf(0x00FF00)  # (0.0, 1.0, 0.0)  — green
+```
+
+---
+
+### `sRGB_to_rgb(srgb)` → `tuple`
+
+Converts a packed sRGB integer to a `(red, green, blue)` tuple of integers in `range(256)`.
+
+```python
+import pymupdf
+
+pymupdf.sRGB_to_rgb(0xFF0000)  # (255, 0, 0)
+```
+
+---
+
+## Module attributes
+
+### `pdfcolor`
+
+A dictionary of approximately 500 named colors in PDF float format. Keys are lowercase color names; values are `(red, green, blue)` tuples with components in `[0.0, 1.0]`.
+
+```python
+import pymupdf
+
+pymupdf.pdfcolor["red"]      # (1.0, 0.0, 0.0)
+pymupdf.pdfcolor["skyblue"]  # (0.529, 0.808, 0.922)
+pymupdf.pdfcolor["wheat"]    # (0.961, 0.871, 0.702)
+```
+
+---
+
+### `fitz_fontdescriptors`
+
+A dictionary of supplemental fonts available from the `pymupdf-fonts` package. Keys are reserved font names (e.g. `"fimo"`, `"notos"`); values are dicts with `name`, `size`, `mono`, `bold`, `italic`, `serif`, and `glyphs` fields. Empty if `pymupdf-fonts` is not installed.
+
+```python
+import pymupdf
+
+pymupdf.fitz_fontdescriptors.keys()
+# dict_keys(['cascadia', 'fimo', 'notos', ...])
+
+pymupdf.fitz_fontdescriptors["fimo"]
+# {'name': 'Fira Mono Regular', 'size': 125712,
+#  'mono': True, 'bold': False, 'italic': False,
+#  'serif': True, 'glyphs': 1485}
+```
+
+Use the key as the `fontname` argument when creating a `Font` object: `pymupdf.Font("fimo")`.

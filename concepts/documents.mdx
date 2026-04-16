@@ -1,0 +1,229 @@
+---
+title: "Working with documents in PyMuPDF"
+description: "Learn how PyMuPDF represents documents, how to open files from disk or memory, access metadata, navigate pages, and manage document lifecycle."
+---
+
+PyMuPDF exposes every supported file format — PDF, XPS, EPUB, MOBI, and more — through a single `Document` class. Opening a file, reading its metadata, iterating its pages, and saving changes all go through this one object, making it the central entry point for any PyMuPDF workflow.
+
+## The Document class
+
+`pymupdf.Document` (also available as `pymupdf.open`) represents an open document in memory. You can construct it from a file path, from raw bytes, or from an in-memory stream. When called with no arguments it creates a new, empty PDF.
+
+```python
+import pymupdf
+
+# Open from a file path
+doc = pymupdf.open("report.pdf")
+
+# Equivalent alias
+doc = pymupdf.open("report.pdf")
+```
+
+## Opening documents
+
+<Tabs>
+  <Tab title="From a file">
+    ```python
+    import pymupdf
+
+    doc = pymupdf.open("annual-report.pdf")
+    ```
+  </Tab>
+  <Tab title="From bytes">
+    ```python
+    import pymupdf
+
+    with open("annual-report.pdf", "rb") as f:
+        data = f.read()
+
+    doc = pymupdf.open(stream=data, filetype="pdf")
+    ```
+  </Tab>
+  <Tab title="From a stream">
+    ```python
+    import pymupdf
+    import io
+
+    buffer = io.BytesIO(open("annual-report.pdf", "rb").read())
+    doc = pymupdf.open(stream=buffer, filetype="pdf")
+    ```
+  </Tab>
+  <Tab title="New empty PDF">
+    ```python
+    import pymupdf
+
+    doc = pymupdf.open()  # creates an empty PDF
+    ```
+  </Tab>
+</Tabs>
+
+<Note>
+PyMuPDF always detects the file type from content, not from the file extension. The `filetype` parameter is only needed when content inspection cannot determine the type — for example, with plain text, HTML, or XML files.
+</Note>
+
+## Document as a context manager
+
+Use `Document` as a context manager to ensure it is always closed, even if an exception occurs.
+
+```python
+import pymupdf
+
+with pymupdf.open("report.pdf") as doc:
+    for page in doc:
+        print(f"Page {page.number}: {len(page.get_text())} chars")
+
+# doc.is_closed is True here
+```
+
+## Key document attributes
+
+| Attribute | Description |
+|---|---|
+| `doc.page_count` | Total number of pages |
+| `doc.metadata` | Dictionary of document metadata |
+| `doc.is_pdf` | `True` if the document is a PDF |
+| `doc.is_encrypted` | `True` if the document is still encrypted |
+| `doc.needs_pass` | `True` if a password is required |
+| `doc.name` | The filename the document was opened from |
+
+```python
+import pymupdf
+
+doc = pymupdf.open("report.pdf")
+
+print(doc.page_count)   # e.g. 42
+print(doc.is_pdf)       # True
+print(doc.is_encrypted) # False
+```
+
+## Document metadata
+
+The `metadata` attribute is a dictionary containing standard document properties. All values are strings; an empty string means the field is not set.
+
+```python
+import pymupdf
+
+doc = pymupdf.open("report.pdf")
+meta = doc.metadata
+
+print(meta["title"])
+print(meta["author"])
+print(meta["subject"])
+print(meta["keywords"])
+print(meta["creationDate"])
+print(meta["modDate"])
+```
+
+<Tip>
+To update metadata on a PDF, use `doc.set_metadata({"title": "New Title", "author": "Jane Doe"})` and then save.
+</Tip>
+
+## Navigating pages
+
+PyMuPDF supports three equivalent patterns for accessing pages.
+
+<Steps>
+  <Step title="Index access">
+    Use bracket notation with a zero-based integer. Negative indices count from the end.
+
+    ```python
+    first_page = doc[0]
+    last_page  = doc[-1]
+    ```
+  </Step>
+  <Step title="load_page()">
+    The explicit method mirrors index access and also accepts chapter-based `(chapter, pno)` tuples for EPUB files.
+
+    ```python
+    page = doc.load_page(5)        # page 6 (0-based)
+    page = doc.load_page(-1)       # last page
+    ```
+  </Step>
+  <Step title="Iteration">
+    Iterate directly over the document to visit every page in order.
+
+    ```python
+    for page in doc:
+        text = page.get_text()
+        # process text...
+    ```
+  </Step>
+</Steps>
+
+### Slicing with doc.pages()
+
+`doc.pages(start, stop, step)` works like Python's built-in `range()` and returns a generator, which avoids loading all pages at once.
+
+```python
+# Every other page from page 0 to 19
+for page in doc.pages(0, 20, 2):
+    print(page.number)
+
+# Last five pages
+for page in doc.pages(-5):
+    print(page.number)
+```
+
+## Saving documents
+
+<AccordionGroup>
+  <Accordion title="Save to a file">
+    ```python
+    # Save (PDF only)
+    doc.save("output.pdf")
+
+    # Save with garbage collection and compression
+    doc.save("output.pdf", garbage=3, deflate=True)
+    ```
+  </Accordion>
+  <Accordion title="Write to bytes in memory">
+    ```python
+    # Returns a bytes object containing the full PDF
+    pdf_bytes = doc.tobytes(garbage=3, deflate=True)
+
+    # Write to a file manually
+    with open("output.pdf", "wb") as f:
+        f.write(pdf_bytes)
+    ```
+  </Accordion>
+  <Accordion title="Incremental save">
+    Incremental saves append only the changes to the existing file, which is faster and preserves digital signatures.
+
+    ```python
+    if doc.can_save_incrementally():
+        doc.saveIncr()
+    ```
+  </Accordion>
+</AccordionGroup>
+
+<Warning>
+`doc.save()` and `doc.tobytes()` are PDF-only operations. To convert other document types to PDF first, use `doc.convert_to_pdf()`.
+</Warning>
+
+## Closing a document
+
+Always close a document when finished to release file handles and memory.
+
+```python
+doc.close()
+```
+
+Using a `with` statement (context manager) handles this automatically and is the recommended approach.
+
+## Handling encrypted documents
+
+If `doc.is_encrypted` is `True`, authenticate before accessing page content.
+
+```python
+import pymupdf
+
+doc = pymupdf.open("protected.pdf")
+
+if doc.is_encrypted:
+    result = doc.authenticate("my_password")
+    if not result:
+        raise ValueError("Wrong password")
+
+# Now access pages normally
+page = doc[0]
+```

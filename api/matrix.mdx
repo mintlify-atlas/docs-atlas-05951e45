@@ -1,0 +1,259 @@
+---
+title: "Matrix class — PyMuPDF API reference"
+description: "API reference for PyMuPDF's Matrix class: 2D affine transformations for scaling, rotation, translation, shearing, and coordinate system conversion."
+keywords: ["PyMuPDF", "Matrix", "affine transformation", "rotation", "scaling", "translation", "shearing", "PDF geometry"]
+---
+
+`Matrix` represents a row-major 2×3 affine transformation matrix used throughout PyMuPDF for image rendering and coordinate manipulation. Any combination of scaling, rotation, translation, and shearing can be expressed as a single matrix — or composed by multiplying matrices together. The six active elements are conventionally written `[a, b, c, d, e, f]`, where `a` and `d` control scaling, `b` and `c` produce shearing and rotation effects, and `e` and `f` provide translation.
+
+The matrix layout used by MuPDF (and PDF) is:
+
+```
+[ a  b  0 ]
+[ c  d  0 ]
+[ e  f  1 ]
+```
+
+A point `(x, y)` is transformed to `(x*a + y*c + e, x*b + y*d + f)`.
+
+<Note>
+Matrix multiplication is **not commutative**. The order in which you apply transformations matters. For example, rotating then translating produces a different result than translating then rotating.
+</Note>
+
+## Constructors
+
+<ResponseField name="Matrix()" type="Matrix">
+  Creates the zero matrix `Matrix(0, 0, 0, 0, 0, 0)`. All elements are 0.
+</ResponseField>
+
+<ResponseField name="Matrix(zoom_x, zoom_y)" type="Matrix">
+  Creates a scaling (zoom) matrix. Sets `a = zoom_x`, `d = zoom_y`, all other elements to 0 (except the implicit diagonal). Equivalent to `[zoom_x, 0, 0, zoom_y, 0, 0]`.
+</ResponseField>
+
+<ResponseField name="Matrix(shear_x, shear_y, 1)" type="Matrix">
+  Creates a shear matrix by passing a third argument of `1`. Sets `b = shear_y`, `c = shear_x`, and `a = d = 1`.
+</ResponseField>
+
+<ResponseField name="Matrix(degree)" type="Matrix">
+  Creates a counter-clockwise rotation matrix for `degree` degrees. Sets `a = d = cos(degree)`, `b = sin(degree)`, `c = -sin(degree)`, `e = f = 0`.
+</ResponseField>
+
+<ResponseField name="Matrix(a, b, c, d, e, f)" type="Matrix">
+  Creates a matrix from six explicit float values.
+</ResponseField>
+
+<ResponseField name="Matrix(matrix)" type="Matrix">
+  Creates a new copy of another matrix.
+</ResponseField>
+
+<ResponseField name="Matrix(sequence)" type="Matrix">
+  Creates a matrix from a Python sequence of exactly 6 floats.
+</ResponseField>
+
+```python
+import pymupdf
+
+# Identity (zoom factor 1 in both directions)
+identity = pymupdf.Matrix(1, 1)
+print(identity)  # Matrix(1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
+
+# Scale x by 2, y by 0.5
+scale = pymupdf.Matrix(2, 0.5)
+
+# Rotate 45 degrees counter-clockwise
+rotate = pymupdf.Matrix(45)
+
+# Translate right by 50, down by 20
+translate = pymupdf.Matrix(1, 0, 0, 1, 50, 20)
+
+# Full explicit form
+custom = pymupdf.Matrix(1, 0, 0, 1, 50, 20)
+```
+
+## Pre-built matrices
+
+`pymupdf.Identity` is a module-level constant for the identity matrix `[1, 0, 0, 1, 0, 0]`. It is read-only; to get a mutable copy use `pymupdf.Matrix(1, 1)` or `pymupdf.Matrix(pymupdf.Identity)`.
+
+```python
+import pymupdf
+
+print(pymupdf.Identity)
+# IdentityMatrix(1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
+
+# Mutable copy
+mat = pymupdf.Matrix(pymupdf.Identity)
+mat.e = 100  # shift right by 100 points
+```
+
+## Properties
+
+<ResponseField name="a" type="float">
+  Horizontal scaling factor (affects width). A value of `0.5` shrinks width by half. A negative value adds a left-right flip.
+</ResponseField>
+
+<ResponseField name="b" type="float">
+  Shearing: each `Point(x, y)` becomes `Point(x, y - b*x)`. Tilts horizontal lines.
+</ResponseField>
+
+<ResponseField name="c" type="float">
+  Shearing: each `Point(x, y)` becomes `Point(x - c*y, y)`. Tilts vertical lines.
+</ResponseField>
+
+<ResponseField name="d" type="float">
+  Vertical scaling factor (affects height). A value of `1.5` stretches height by 50%. A negative value adds an up-down flip.
+</ResponseField>
+
+<ResponseField name="e" type="float">
+  Horizontal translation. Each `Point(x, y)` becomes `Point(x + e, y)`. Positive values shift right, negative values shift left.
+</ResponseField>
+
+<ResponseField name="f" type="float">
+  Vertical translation. Each `Point(x, y)` becomes `Point(x, y - f)`. Positive values shift down (in PDF y-down coordinates), negative values shift up.
+</ResponseField>
+
+<ResponseField name="is_rectilinear" type="bool">
+  `True` if the matrix maps rectangles to rectangles — that is, no shearing is present and any rotations are multiples of 90 degrees. This is checked by verifying that either `b` and `c` are both near zero, or `a` and `d` are both near zero.
+</ResponseField>
+
+## Methods
+
+<ResponseField name="prerotate(deg)" type="Matrix">
+  Pre-multiplies the matrix by a rotation matrix for `deg` degrees (counter-clockwise for positive values). Modifies the matrix in place and returns `self`.
+
+  ```python
+  mat = pymupdf.Matrix(1, 1)  # identity
+  mat.prerotate(90)
+  print(mat)  # Matrix(0.0, 1.0, -1.0, 0.0, 0.0, 0.0)
+  ```
+</ResponseField>
+
+<ResponseField name="prescale(sx, sy)" type="Matrix">
+  Pre-multiplies the matrix by a scaling matrix for factors `sx` (x-direction) and `sy` (y-direction). Affects elements `a` through `d` only. Modifies in place and returns `self`.
+
+  ```python
+  mat = pymupdf.Matrix(1, 1)
+  mat.prescale(2, 0.5)
+  print(mat.a, mat.d)  # 2.0  0.5
+  ```
+</ResponseField>
+
+<ResponseField name="preshear(sx, sy)" type="Matrix">
+  Pre-multiplies the matrix by a shear matrix. Transforms rectangles into parallelograms. Affects elements `a` through `d` only. Modifies in place and returns `self`.
+</ResponseField>
+
+<ResponseField name="pretranslate(tx, ty)" type="Matrix">
+  Pre-multiplies the matrix by a translation matrix, shifting by `tx` in x and `ty` in y. Only affects elements `e` and `f`. Modifies in place and returns `self`.
+
+  ```python
+  mat = pymupdf.Matrix(1, 1)
+  mat.pretranslate(50, 30)
+  print(mat.e, mat.f)  # 50.0  30.0
+  ```
+</ResponseField>
+
+<ResponseField name="concat(m1, m2)" type="Matrix">
+  Computes the matrix product `m1 * m2` and stores the result in this matrix. Either `m1` or `m2` may be this matrix itself. Returns `self`.
+
+  ```python
+  scale = pymupdf.Matrix(2, 2)
+  translate = pymupdf.Matrix(1, 0, 0, 1, 100, 50)
+  result = pymupdf.Matrix(1, 1)
+  result.concat(scale, translate)
+  ```
+</ResponseField>
+
+<ResponseField name="invert(m=None)" type="int">
+  Computes the inverse of matrix `m` (or the current matrix if `m` is not provided) and stores the result in this matrix. Returns `0` on success and `1` if the matrix is not invertible (degenerate). If inversion fails, the matrix is **not changed**.
+
+  ```python
+  mat = pymupdf.Matrix(2, 0, 0, 3, 10, 20)
+  inv = pymupdf.Matrix()
+  rc = inv.invert(mat)
+  if rc == 0:
+      print("Inverted:", inv)
+  else:
+      print("Matrix is not invertible")
+  ```
+</ResponseField>
+
+<ResponseField name="norm()" type="float">
+  Returns the Euclidean norm of the matrix treated as a 6-element vector.
+</ResponseField>
+
+## The ~ operator (inversion shorthand)
+
+The `~` (tilde) operator computes and returns the inverse of a matrix as a new matrix. If the matrix is not invertible, the result is the zero matrix.
+
+```python
+import pymupdf
+
+mat = pymupdf.Matrix(2, 0, 0, 3, 10, 20)
+inv = ~mat
+print(inv)
+
+# Verify: mat * ~mat ≈ Identity
+product = mat * inv
+print(product)  # Matrix(1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
+```
+
+## Multiplication with *
+
+Matrices can be multiplied together using `*`, or applied to points and rectangles.
+
+```python
+import pymupdf
+
+scale = pymupdf.Matrix(150 / 72, 150 / 72)  # 150 DPI zoom
+rotate = pymupdf.Matrix(90)                 # 90° rotation
+
+combined = scale * rotate
+
+# Apply to a rectangle
+r = pymupdf.Rect(0, 0, 72, 72)
+transformed = r * combined
+```
+
+## Common usage: DPI control with get_pixmap()
+
+The most common use of `Matrix` in PyMuPDF is controlling the resolution of rendered page images. The default resolution is 72 DPI (one pixel per point). To render at a higher DPI, construct a scaling matrix:
+
+```python
+import pymupdf
+
+doc = pymupdf.open("document.pdf")
+page = doc[0]
+
+# Render at 300 DPI
+zoom = 300 / 72          # ≈ 4.167
+mat = pymupdf.Matrix(zoom, zoom)
+pix = page.get_pixmap(matrix=mat)
+pix.save("page_300dpi.png")
+```
+
+To render with rotation and scaling combined:
+
+```python
+import pymupdf
+
+doc = pymupdf.open("document.pdf")
+page = doc[0]
+
+# 150 DPI, rotated 90 degrees
+zoom = 150 / 72
+mat = pymupdf.Matrix(zoom, zoom).prerotate(90)
+pix = page.get_pixmap(matrix=mat)
+pix.save("page_rotated.png")
+```
+
+## Arithmetic operators
+
+| Expression | Result |
+|---|---|
+| `m1 * m2` | Matrix product (new Matrix) |
+| `m * scalar` | Scale all elements |
+| `m / scalar` | Divide all elements |
+| `m / m2` | Multiply by inverse of `m2` |
+| `m + m2` | Element-wise addition |
+| `m - m2` | Element-wise subtraction |
+| `~m` | Inverse matrix |
+| `abs(m)` | Euclidean norm |

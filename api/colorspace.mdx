@@ -1,0 +1,198 @@
+---
+title: "Colorspace class and constants — PyMuPDF API reference"
+description: "Reference for PyMuPDF's Colorspace class and predefined colorspace constants: RGB, CMYK, grayscale, and colorspace conversion for pixmap operations."
+keywords: ["pymupdf", "Colorspace", "RGB", "CMYK", "grayscale", "LAB", "pixmap", "color", "csRGB", "csGRAY"]
+---
+
+A `Colorspace` object describes the color model used by a `Pixmap`. It determines how many bytes represent a single pixel's color and which color model (grayscale, RGB, CMYK) is in use. PyMuPDF provides three predefined colorspace constants so you rarely need to construct one directly — but the constructor is available when you do.
+
+---
+
+## Constructor
+
+### `Colorspace(n)`
+
+Creates a `Colorspace` from a numeric type constant.
+
+<ParamField path="n" type="int" required>
+  A colorspace constant: `pymupdf.CS_GRAY` (grayscale), `pymupdf.CS_RGB` (RGB), or `pymupdf.CS_CMYK` (CMYK).
+</ParamField>
+
+```python
+import pymupdf
+
+cs = pymupdf.Colorspace(pymupdf.CS_RGB)
+print(cs.name)  # "DeviceRGB"
+print(cs.n)     # 3
+```
+
+---
+
+## Properties
+
+### `name` → `str`
+
+The PDF/MuPDF colorspace name.
+
+<ResponseField name="name" type="str">
+  One of `"DeviceGray"`, `"DeviceRGB"`, or `"DeviceCMYK"`.
+</ResponseField>
+
+```python
+import pymupdf
+
+pymupdf.csCMYK.name   # "DeviceCMYK"
+pymupdf.csRGB.name    # "DeviceRGB"
+pymupdf.csGRAY.name   # "DeviceGray"
+```
+
+---
+
+### `n` → `int`
+
+The number of color component bytes needed to represent one pixel.
+
+<ResponseField name="n" type="int">
+  `1` for grayscale, `3` for RGB, `4` for CMYK.
+</ResponseField>
+
+```python
+import pymupdf
+
+pymupdf.csGRAY.n   # 1
+pymupdf.csRGB.n    # 3
+pymupdf.csCMYK.n   # 4
+```
+
+---
+
+## Predefined colorspace constants
+
+PyMuPDF creates three module-level `Colorspace` instances at import time. Use these directly instead of calling the constructor.
+
+| Constant | Equivalent constructor | `name` | `n` |
+|---|---|---|---|
+| `pymupdf.csRGB` | `Colorspace(pymupdf.CS_RGB)` | `"DeviceRGB"` | `3` |
+| `pymupdf.csGRAY` | `Colorspace(pymupdf.CS_GRAY)` | `"DeviceGray"` | `1` |
+| `pymupdf.csCMYK` | `Colorspace(pymupdf.CS_CMYK)` | `"DeviceCMYK"` | `4` |
+
+```python
+import pymupdf
+
+# All three are equivalent:
+cs1 = pymupdf.csRGB
+cs2 = pymupdf.Colorspace(pymupdf.CS_RGB)
+
+print(cs1.name == cs2.name)  # True
+print(cs1.n == cs2.n)        # True
+```
+
+---
+
+## Using colorspaces with Pixmap
+
+The most common place you supply a `Colorspace` is when creating or converting a `Pixmap`.
+
+### Rendering a page in a specific colorspace
+
+Pass a colorspace to `Page.get_pixmap()` to control the output color model.
+
+```python
+import pymupdf
+
+doc = pymupdf.open("document.pdf")
+page = doc[0]
+
+# Render as RGB (default)
+pix_rgb = page.get_pixmap(colorspace=pymupdf.csRGB)
+
+# Render as grayscale — smaller file, faster processing
+pix_gray = page.get_pixmap(colorspace=pymupdf.csGRAY)
+pix_gray.save("page_gray.png")
+```
+
+---
+
+### Converting between colorspaces
+
+Create a new `Pixmap` from an existing one to change its colorspace. The source pixmap is not modified.
+
+```python
+import pymupdf
+
+doc = pymupdf.open("document.pdf")
+page = doc[0]
+
+# Start with a CMYK pixmap
+pix_cmyk = page.get_pixmap(colorspace=pymupdf.csCMYK)
+print(pix_cmyk.colorspace.name)  # "DeviceCMYK"
+print(pix_cmyk.n)                # 4
+
+# Convert to RGB for PNG output (PNG does not support CMYK)
+pix_rgb = pymupdf.Pixmap(pymupdf.csRGB, pix_cmyk)
+print(pix_rgb.colorspace.name)   # "DeviceRGB"
+pix_rgb.save("converted.png")
+```
+
+<Warning>
+  PNG does not support CMYK colorspace. Always convert a CMYK `Pixmap` to RGB before saving as PNG.
+</Warning>
+
+---
+
+### Checking pixel component count
+
+The `n` property of a `Pixmap` reflects its colorspace's component count. An alpha channel adds one extra byte.
+
+```python
+import pymupdf
+
+doc = pymupdf.open("document.pdf")
+page = doc[0]
+
+pix = page.get_pixmap(colorspace=pymupdf.csRGB, alpha=True)
+print(pix.colorspace.n)  # 3   (RGB components)
+print(pix.n)             # 4   (3 color + 1 alpha)
+```
+
+---
+
+## Common patterns
+
+<AccordionGroup>
+  <Accordion title="Extract images and normalize to RGB">
+    When processing images embedded in a PDF, their colorspace may vary. This pattern ensures all output is RGB.
+
+    ```python
+    import pymupdf
+
+    doc = pymupdf.open("report.pdf")
+
+    for page_num in range(doc.page_count):
+        page = doc[page_num]
+        for img_info in page.get_images():
+            xref = img_info[0]
+            pix = pymupdf.Pixmap(doc, xref)
+
+            if pix.colorspace and pix.colorspace.n == 4:
+                # CMYK: convert before saving
+                pix = pymupdf.Pixmap(pymupdf.csRGB, pix)
+
+            pix.save(f"img-{xref}.png")
+    ```
+  </Accordion>
+
+  <Accordion title="Grayscale rendering for OCR pre-processing">
+    Grayscale pixmaps are smaller and often preferred as input to OCR engines.
+
+    ```python
+    import pymupdf
+
+    doc = pymupdf.open("scanned.pdf")
+
+    for i, page in enumerate(doc):
+        pix = page.get_pixmap(colorspace=pymupdf.csGRAY, dpi=300)
+        pix.save(f"page_{i:03d}.png")
+    ```
+  </Accordion>
+</AccordionGroup>

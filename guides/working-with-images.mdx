@@ -1,0 +1,202 @@
+---
+title: "Render and extract images with PyMuPDF"
+description: "How to render document pages as images, extract embedded images, convert between formats, and control resolution and colorspace in PyMuPDF."
+---
+
+PyMuPDF can both render document pages as raster images and extract images that are embedded inside a document. Rendering produces a `Pixmap` object, which you can save to disk or pass to another library. Extraction gives you the original binary image data so you can losslessly recover embedded photographs, logos, and other assets.
+
+## Rendering a page to PNG
+
+The simplest way to render a page is `page.get_pixmap()` followed by `pix.save()`. By default each page is rendered at 96 dpi.
+
+```python
+import pymupdf
+
+doc = pymupdf.open("document.pdf")
+for page in doc:
+    pix = page.get_pixmap()
+    pix.save(f"page-{page.number}.png")
+```
+
+## Controlling DPI and resolution
+
+Pass `dpi=` to `get_pixmap()` to set a specific resolution. The dpi value is embedded in the image file, so downstream tools will interpret the image at the correct scale.
+
+```python
+import pymupdf
+
+doc = pymupdf.open("document.pdf")
+page = doc[0]
+
+# Render at 300 dpi (suitable for print-quality output)
+pix = page.get_pixmap(dpi=300)
+pix.save("page-hires.png")
+```
+
+Alternatively, use a `Matrix` for more control — for example to zoom, rotate, or shear:
+
+```python
+import pymupdf
+
+mat = pymupdf.Matrix(2.0, 2.0)  # 2× zoom in each axis → 4× pixel count
+pix = page.get_pixmap(matrix=mat)
+pix.save("page-2x.png")
+```
+
+## Rendering a clip rectangle
+
+Render only a portion of a page by passing a `clip` rectangle. Coordinates are in page units (points).
+
+```python
+import pymupdf
+
+doc = pymupdf.open("document.pdf")
+page = doc[0]
+
+# Render only the bottom-right quarter of the page
+rect = page.rect
+mp = (rect.tl + rect.br) / 2       # midpoint becomes the top-left of the clip
+clip = pymupdf.Rect(mp, rect.br)
+
+pix = page.get_pixmap(matrix=pymupdf.Matrix(2, 2), clip=clip)
+pix.save("clip.png")
+```
+
+## Rendering to grayscale or other colorspaces
+
+Pass a `colorspace` argument to `get_pixmap()` to control the output color model:
+
+```python
+import pymupdf
+
+doc = pymupdf.open("document.pdf")
+page = doc[0]
+
+# Grayscale
+pix_gray = page.get_pixmap(colorspace=pymupdf.csGRAY)
+pix_gray.save("page-gray.png")
+
+# CMYK
+pix_cmyk = page.get_pixmap(colorspace=pymupdf.csCMYK)
+pix_cmyk.save("page-cmyk.png")
+```
+
+<Note>
+Not all output formats support every colorspace. PNG supports RGB and grayscale; CMYK output is typically used for print workflows (e.g., TIFF or PDF).
+</Note>
+
+## Saving a Pixmap to bytes instead of a file
+
+Use `pix.tobytes()` when you need the image as an in-memory bytes object — for example, to send it over a network or pass it directly to another library.
+
+```python
+import pymupdf
+
+doc = pymupdf.open("document.pdf")
+pix = doc[0].get_pixmap(dpi=150)
+
+png_bytes = pix.tobytes("png")
+jpg_bytes = pix.tobytes("jpeg")  # lossy, smaller file size
+```
+
+## Extracting embedded images from a page
+
+`page.get_images()` returns a list of image references on the page. Each item is a tuple where the first element is the image's cross-reference number (`xref`).
+
+```python
+import pymupdf
+
+doc = pymupdf.open("document.pdf")
+page = doc[0]
+
+for img_info in page.get_images():
+    xref = img_info[0]
+    img_dict = doc.extract_image(xref)
+
+    ext = img_dict["ext"]          # e.g. "jpeg", "png", "bmp"
+    image_bytes = img_dict["image"]
+
+    with open(f"extracted-{xref}.{ext}", "wb") as f:
+        f.write(image_bytes)
+```
+
+<Tip>
+`doc.extract_image()` returns the image in its original compressed format. This is much faster and produces smaller files than re-encoding from a Pixmap, especially for JPEG images.
+</Tip>
+
+## Getting image data via xref from all pages
+
+To extract every image in a document (regardless of which page references it), iterate over all cross-reference numbers:
+
+```python
+import pymupdf
+
+doc = pymupdf.open("document.pdf")
+
+for xref in range(1, doc.xref_length()):
+    img = doc.extract_image(xref)
+    if img:  # non-empty dict means this xref is an image
+        with open(f"img-{xref}.{img['ext']}", "wb") as f:
+            f.write(img["image"])
+```
+
+## Reconstructing images with transparency masks
+
+Some PDF images store transparency in a separate "stencil mask" image. When the `smask` field of an image info tuple is non-zero, you must combine the two pixmaps to recover the original with an alpha channel:
+
+```python
+import pymupdf
+
+doc = pymupdf.open("document.pdf")
+page = doc[0]
+
+for img_info in page.get_images():
+    xref, smask = img_info[0], img_info[1]
+    if smask > 0:
+        # Combine image and mask to restore transparency
+        pix_base = pymupdf.Pixmap(doc.extract_image(xref)["image"])
+        pix_mask = pymupdf.Pixmap(doc.extract_image(smask)["image"])
+        pix_final = pymupdf.Pixmap(pix_base, pix_mask)  # adds alpha channel
+        pix_final.save(f"masked-{xref}.png")
+```
+
+## Converting between image formats
+
+PyMuPDF's `Pixmap` can read most common raster formats and write to a different format in two lines:
+
+```python
+import pymupdf
+
+# Read any supported format, save as a different format
+pix = pymupdf.Pixmap("input.bmp")
+pix.save("output.png")
+
+# Or get bytes instead of writing a file
+jpeg_bytes = pix.tobytes("jpeg")
+```
+
+<AccordionGroup>
+  <Accordion title="Supported input formats">
+    BMP, GIF, JPEG, JXR, JPX/JP2, PNG, PNM, PGM, PBM, PPM, PAM, TIFF
+  </Accordion>
+  <Accordion title="Supported output formats">
+    JPEG, PNG, PNM, PGM, PBM, PPM, PAM, PSD (Photoshop), PS (Postscript)
+  </Accordion>
+</AccordionGroup>
+
+## Adding images to a PDF page
+
+Use `page.insert_image()` to place an image file, bytes, or Pixmap onto an existing or new page:
+
+```python
+import pymupdf
+
+doc = pymupdf.open()
+page = doc.new_page()
+
+# Target rectangle where the image will appear
+rect = pymupdf.Rect(72, 72, 400, 300)
+
+page.insert_image(rect, filename="photo.jpg", keep_proportion=True)
+doc.save("with-image.pdf")
+```

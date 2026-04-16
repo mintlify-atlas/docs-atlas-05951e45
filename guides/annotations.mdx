@@ -1,0 +1,228 @@
+---
+title: "Add and manage PDF annotations in PyMuPDF"
+description: "How to add highlights, underlines, strikethroughs, text notes, stamps, and other annotations to PDFs, and how to read or modify existing annotations."
+---
+
+Annotations in PDF are interactive objects that sit on top of page content — highlights, sticky notes, stamps, free-text boxes, and more. PyMuPDF lets you add new annotations to any PDF page, read and modify existing ones, and delete them. All annotation types are created with `Page` methods and further configured through the returned `Annot` object.
+
+<Note>
+Annotations can only be added to PDF documents. Other supported formats (XPS, EPUB, etc.) do not support annotation insertion.
+</Note>
+
+## Adding a highlight annotation
+
+Search for text first to get its location, then pass the result to `page.add_highlight_annot()`:
+
+```python
+import pymupdf
+
+doc = pymupdf.open("document.pdf")
+page = doc[0]
+
+# search_for returns Rect objects; use quads=True for tilted text
+quads = page.search_for("important", quads=True)
+if quads:
+    annot = page.add_highlight_annot(quads[0])
+
+doc.save("highlighted.pdf")
+```
+
+## Adding a text annotation (sticky note)
+
+`page.add_text_annot()` places a sticky-note icon at a point. The second argument is the note content.
+
+```python
+import pymupdf
+
+doc = pymupdf.open("document.pdf")
+page = doc[0]
+
+# Point where the icon will appear, then the note text
+annot = page.add_text_annot(
+    pymupdf.Point(72, 72),
+    "Reviewer comment: please verify this figure."
+)
+
+doc.save("with-note.pdf")
+```
+
+## Adding underline and strikeout annotations
+
+Both methods accept a `Rect`, a `Quad`, or a list of quads returned by `page.search_for()`:
+
+```python
+import pymupdf
+
+doc = pymupdf.open("document.pdf")
+page = doc[0]
+
+# Underline
+ul_quads = page.search_for("underline this", quads=True)
+if ul_quads:
+    page.add_underline_annot(ul_quads[0])
+
+# Strikeout
+so_quads = page.search_for("delete this", quads=True)
+if so_quads:
+    page.add_strikeout_annot(so_quads[0])
+
+doc.save("marked.pdf")
+```
+
+## Adding a rectangle annotation
+
+`page.add_rect_annot()` draws a rectangle (square) annotation. Customize colors and opacity with `annot.set_colors()` and `annot.update()`:
+
+```python
+import pymupdf
+
+doc = pymupdf.open("document.pdf")
+page = doc[0]
+
+rect = pymupdf.Rect(72, 100, 300, 200)
+annot = page.add_rect_annot(rect)
+annot.set_border(width=1, dashes=[1, 2])
+annot.set_colors(stroke=(0, 0, 1), fill=(1, 1, 0))  # blue border, yellow fill
+annot.update(opacity=0.5)
+
+doc.save("rect-annot.pdf")
+```
+
+## Adding a free-text annotation
+
+`page.add_freetext_annot()` places a text box directly on the page. You can control font, size, text and fill colors, and rotation:
+
+```python
+import pymupdf
+
+doc = pymupdf.open("document.pdf")
+page = doc[0]
+
+rect = pymupdf.Rect(100, 100, 300, 160)
+annot = page.add_freetext_annot(
+    rect,
+    "Free text annotation",
+    fontsize=12,
+    text_color=(0, 0, 1),    # blue text
+    fill_color=(1, 1, 0),    # yellow background
+    align=pymupdf.TEXT_ALIGN_CENTER,
+)
+annot.set_border(width=0.5, dashes=[2])
+annot.update(text_color=(0, 0, 1), fill_color=(1, 1, 0))
+
+doc.save("freetext.pdf")
+```
+
+## Reading existing annotations
+
+Iterate `page.annots()` to inspect every annotation on a page. Each `Annot` object exposes its type, rectangle, colors, and content:
+
+```python
+import pymupdf
+
+doc = pymupdf.open("annotated.pdf")
+page = doc[0]
+
+for annot in page.annots():
+    print(f"Type : {annot.type[1]}")
+    print(f"Rect : {annot.rect}")
+    print(f"Info : {annot.info}")
+    print()
+```
+
+## Modifying annotation properties
+
+Use the `Annot` methods to change colors, opacity, border, and other attributes. Always call `annot.update()` after making changes:
+
+```python
+import pymupdf
+
+doc = pymupdf.open("annotated.pdf")
+page = doc[0]
+
+for annot in page.annots():
+    if annot.type[1] == "Highlight":
+        # Change highlight color to green
+        annot.set_colors(stroke=(0, 1, 0))
+        # Set 70% opacity
+        annot.update(opacity=0.7)
+
+doc.save("modified-annots.pdf")
+```
+
+<Tip>
+The `annot.type` attribute is a tuple `(type_code, type_name)`. Common names include `"Highlight"`, `"Text"`, `"FreeText"`, `"Square"`, `"Circle"`, `"Underline"`, `"StrikeOut"`, and `"Stamp"`.
+</Tip>
+
+## Deleting annotations
+
+Pass an `Annot` object to `page.delete_annot()` to remove it. Collect the annotations you want to delete before iterating, since the list changes as you delete:
+
+```python
+import pymupdf
+
+doc = pymupdf.open("annotated.pdf")
+page = doc[0]
+
+# Collect all highlights to delete
+to_delete = [a for a in page.annots() if a.type[1] == "Highlight"]
+
+for annot in to_delete:
+    page.delete_annot(annot)
+
+doc.save("cleaned.pdf")
+```
+
+## Complete example: annotating a document
+
+The example below creates a new PDF page and adds several annotation types in sequence, demonstrating the range of what is available:
+
+```python
+import pymupdf
+
+doc = pymupdf.open()
+page = doc.new_page()
+
+red   = (1, 0, 0)
+blue  = (0, 0, 1)
+gold  = (1, 1, 0)
+green = (0, 1, 0)
+
+# Free-text box
+r = pymupdf.Rect(72, 72, 250, 110)
+annot = page.add_freetext_annot(r, "FreeText", fontsize=10, text_color=blue, fill_color=gold)
+annot.update()
+
+# Sticky note
+annot = page.add_text_annot(pymupdf.Point(72, 130), "A sticky note")
+
+# Insert then highlight some text
+page.insert_text(pymupdf.Point(72, 200), "Highlight me", fontsize=12)
+rl = page.search_for("Highlight me", quads=True)
+if rl:
+    page.add_highlight_annot(rl[0])
+
+# Rectangle with border and fill
+r2 = pymupdf.Rect(72, 230, 250, 290)
+annot = page.add_rect_annot(r2)
+annot.set_colors(stroke=blue, fill=gold)
+annot.update(opacity=0.5)
+
+# Stamp annotation
+r3 = pymupdf.Rect(72, 310, 250, 360)
+annot = page.add_stamp_annot(r3, stamp=10)
+annot.set_colors(stroke=green)
+annot.update()
+
+doc.save("all-annots.pdf", deflate=True)
+```
+
+## Saving annotated PDFs
+
+Call `doc.save()` or `doc.ez_save()` after all annotation operations. Use `deflate=True` to reduce file size:
+
+```python
+doc.save("output.pdf", deflate=True)
+```
+
+To save without overwriting the original, provide a different file path. To update the file in place, use `doc.saveIncr()` (incremental save), which is faster for large documents with few changes.

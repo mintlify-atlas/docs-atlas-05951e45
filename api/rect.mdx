@@ -1,0 +1,336 @@
+---
+title: "Rect and IRect classes — PyMuPDF API reference"
+description: "API reference for PyMuPDF's Rect and IRect geometry classes: creating rectangles, transformations, intersections, containment checks, and coordinate arithmetic."
+keywords: ["PyMuPDF", "Rect", "IRect", "rectangle", "geometry", "PDF coordinates", "bounding box"]
+---
+
+`Rect` and `IRect` are the two rectangle types in PyMuPDF. `Rect` stores four floating-point coordinates `(x0, y0, x1, y1)` that define two diagonally opposite corners of a rectangle whose borders are always parallel to the x- and y-axes. `IRect` is the integer-coordinate counterpart, used wherever a pixel-aligned bounding box is required (for example, when specifying the area to render into a `Pixmap`). All coordinates are in points, where 72 points equals 1 inch, and the y-axis increases downward following PDF convention.
+
+<Note>
+A rectangle is **valid** when `x0 <= x1` and `y0 <= y1`. It is **empty** when `x0 >= x1` or `y0 >= y1`. There is exactly one infinite rectangle, defined by `x0 = y0 = -2147483648` and `x1 = y1 = 2147483520`. Rectangles are **semi-open**: the right and bottom edges (including their corners) are not considered part of the rectangle.
+</Note>
+
+## Rect
+
+### Constructors
+
+`Rect` accepts several overloaded constructor forms.
+
+<ResponseField name="Rect()" type="Rect">
+  Creates the empty rectangle `Rect(0.0, 0.0, 0.0, 0.0)`.
+</ResponseField>
+
+<ResponseField name="Rect(x0, y0, x1, y1)" type="Rect">
+  Creates a rectangle from four float coordinates.
+</ResponseField>
+
+<ResponseField name="Rect(top_left, bottom_right)" type="Rect">
+  Creates a rectangle from two `point_like` objects representing the top-left and bottom-right corners.
+</ResponseField>
+
+<ResponseField name="Rect(top_left, x1, y1)" type="Rect">
+  Creates a rectangle from a `point_like` top-left corner and two individual coordinates.
+</ResponseField>
+
+<ResponseField name="Rect(x0, y0, bottom_right)" type="Rect">
+  Creates a rectangle from two individual coordinates and a `point_like` bottom-right corner.
+</ResponseField>
+
+<ResponseField name="Rect(rect)" type="Rect">
+  Creates a new copy of another `rect_like` object.
+</ResponseField>
+
+<ResponseField name="Rect(sequence)" type="Rect">
+  Creates a rectangle from a Python sequence of exactly 4 numbers.
+</ResponseField>
+
+```python
+import pymupdf
+
+# Four individual coordinates
+r1 = pymupdf.Rect(72, 72, 288, 216)
+
+# From two Point objects
+tl = pymupdf.Point(72, 72)
+br = pymupdf.Point(288, 216)
+r2 = pymupdf.Rect(tl, br)
+
+# From a list
+r3 = pymupdf.Rect([72, 72, 288, 216])
+
+print(r1)      # Rect(72.0, 72.0, 288.0, 216.0)
+print(r1 == r2 == r3)  # True
+```
+
+### Properties
+
+<ResponseField name="x0" type="float">
+  X-coordinate of the left edge (top-left and bottom-left corners).
+</ResponseField>
+
+<ResponseField name="y0" type="float">
+  Y-coordinate of the top edge (top-left and top-right corners).
+</ResponseField>
+
+<ResponseField name="x1" type="float">
+  X-coordinate of the right edge (top-right and bottom-right corners).
+</ResponseField>
+
+<ResponseField name="y1" type="float">
+  Y-coordinate of the bottom edge (bottom-left and bottom-right corners).
+</ResponseField>
+
+<ResponseField name="width" type="float">
+  Width of the rectangle. Equals `max(x1 - x0, 0)`. Returns 0 for empty rectangles.
+</ResponseField>
+
+<ResponseField name="height" type="float">
+  Height of the rectangle. Equals `max(y1 - y0, 0)`. Returns 0 for empty rectangles.
+</ResponseField>
+
+<ResponseField name="top_left / tl" type="Point">
+  Top-left corner. Equals `Point(x0, y0)`.
+</ResponseField>
+
+<ResponseField name="top_right / tr" type="Point">
+  Top-right corner. Equals `Point(x1, y0)`.
+</ResponseField>
+
+<ResponseField name="bottom_left / bl" type="Point">
+  Bottom-left corner. Equals `Point(x0, y1)`.
+</ResponseField>
+
+<ResponseField name="bottom_right / br" type="Point">
+  Bottom-right corner. Equals `Point(x1, y1)`.
+</ResponseField>
+
+<ResponseField name="irect" type="IRect">
+  The integer rectangle containing this one. Equivalent to calling `round()`.
+</ResponseField>
+
+<ResponseField name="quad" type="Quad">
+  The quadrilateral `Quad(tl, tr, bl, br)` formed by the rectangle's four corners.
+</ResponseField>
+
+<ResponseField name="is_empty" type="bool">
+  `True` if `x0 >= x1` or `y0 >= y1`. Invalid rectangles are always empty.
+</ResponseField>
+
+<ResponseField name="is_valid" type="bool">
+  `True` if `x0 <= x1` and `y0 <= y1`.
+</ResponseField>
+
+<ResponseField name="is_infinite" type="bool">
+  `True` if this is the single infinite rectangle.
+</ResponseField>
+
+### Methods
+
+<ResponseField name="contains(x)" type="bool">
+  Returns `True` if `x` is contained in the rectangle. `x` may be a `point_like`, a `rect_like`, or a number. An empty rectangle is always contained in any rectangle. If the rectangle itself is empty, this always returns `False` for non-empty inputs. Equivalent to `x in rect`.
+
+  ```python
+  r = pymupdf.Rect(0, 0, 100, 100)
+  print(r.contains(pymupdf.Point(50, 50)))   # True
+  print(r.contains(pymupdf.Rect(10, 10, 90, 90)))  # True
+  print(r.contains(pymupdf.Point(100, 100))) # False — right/bottom edges are outside
+  ```
+</ResponseField>
+
+<ResponseField name="get_area(unit='px')" type="float">
+  Returns the area of the rectangle in the specified unit. The unit parameter accepts `'px'` (pixels, default), `'in'` (inches), `'cm'` (centimeters), or `'mm'` (millimeters). Both empty and infinite rectangles have area 0.
+
+  ```python
+  r = pymupdf.Rect(0, 0, 72, 72)  # 1 inch × 1 inch at 72 dpi
+  print(r.get_area())       # 5184.0 (pixels²)
+  print(r.get_area("in"))   # 1.0
+  print(r.get_area("cm"))   # 6.4516
+  ```
+</ResponseField>
+
+<ResponseField name="include_point(p)" type="Rect">
+  Expands the rectangle in place to also contain the `point_like` `p`. The infinite rectangle is unchanged. Returns `self`.
+
+  ```python
+  r = pymupdf.EMPTY_RECT()
+  for pt in [pymupdf.Point(10, 20), pymupdf.Point(80, 60)]:
+      r.include_point(pt)
+  print(r)  # Rect(10.0, 20.0, 80.0, 60.0)
+  ```
+</ResponseField>
+
+<ResponseField name="include_rect(r)" type="Rect">
+  Expands the rectangle in place to also contain the `rect_like` `r`. If either rectangle is infinite, the result is infinite. If `r` is empty, the current rectangle is unchanged. Returns `self`.
+</ResponseField>
+
+<ResponseField name="intersect(r)" type="Rect">
+  Replaces the rectangle in place with its intersection with `rect_like` `r`. If either rectangle is empty, the result is empty. If `r` is infinite, this is a no-operation. Returns `self`.
+
+  ```python
+  r1 = pymupdf.Rect(0, 0, 100, 100)
+  r2 = pymupdf.Rect(50, 50, 150, 150)
+  r1.intersect(r2)
+  print(r1)  # Rect(50.0, 50.0, 100.0, 100.0)
+  ```
+</ResponseField>
+
+<ResponseField name="intersects(r)" type="bool">
+  Returns `True` if the rectangle and `rect_like` `r` share a common non-empty area. Always `False` if either rectangle is infinite or empty.
+
+  ```python
+  r1 = pymupdf.Rect(0, 0, 100, 100)
+  r2 = pymupdf.Rect(90, 90, 200, 200)
+  r3 = pymupdf.Rect(100, 0, 200, 100)  # touches at edge only
+  print(r1.intersects(r2))  # True
+  print(r1.intersects(r3))  # False — edge contact only, no interior overlap
+  ```
+</ResponseField>
+
+<ResponseField name="normalize()" type="Rect">
+  Replaces the rectangle in place with its valid form by swapping coordinates so that `x0 <= x1` and `y0 <= y1`. Returns `self`.
+</ResponseField>
+
+<ResponseField name="round()" type="IRect">
+  Returns the smallest `IRect` that contains this rectangle. The top-left corner is rounded outward (floor for x0/y0) and the bottom-right corner is rounded outward (ceil for x1/y1). If the rectangle is empty, the result is also empty.
+
+  ```python
+  r = pymupdf.Rect(0.5, -0.01, 123.88, 455.123)
+  print(r.round())  # IRect(0, -1, 124, 456)
+  ```
+</ResponseField>
+
+<ResponseField name="transform(m)" type="Rect">
+  Transforms the rectangle in place by `matrix_like` `m` and replaces it with the smallest axis-aligned rectangle containing the result. Empty and infinite rectangles are unchanged. Returns `self`.
+
+  ```python
+  r = pymupdf.Rect(0, 0, 100, 100)
+  mat = pymupdf.Matrix(0.5, 1.5)  # scale x by 0.5, y by 1.5
+  r.transform(mat)
+  print(r)  # Rect(0.0, 0.0, 50.0, 150.0)
+  ```
+</ResponseField>
+
+<ResponseField name="morph(fixpoint, matrix)" type="Quad">
+  Applies `matrix_like` `matrix` to the rectangle using `point_like` `fixpoint` as the fixed point. Returns a new `Quad`. If the rectangle is infinite, returns the infinite quad.
+</ResponseField>
+
+<ResponseField name="torect(rect)" type="Matrix">
+  Computes the matrix `mat` such that `self * mat == rect`. Useful for converting between coordinate systems such as page space and pixmap space. Both rectangles must be finite and non-empty.
+
+  ```python
+  page_rect = page.rect
+  pix_rect = pymupdf.Rect(0, 0, 1240, 1754)
+  mat = page_rect.torect(pix_rect)
+  ```
+</ResponseField>
+
+<ResponseField name="norm()" type="float">
+  Returns the Euclidean norm of the rectangle treated as a 4-element vector `(x0, y0, x1, y1)`.
+</ResponseField>
+
+### Arithmetic operators
+
+Rectangles support arithmetic with other rectangles, points, scalars, and matrices.
+
+| Expression | Result |
+|---|---|
+| `rect + other` | Coordinate-wise addition |
+| `rect - other` | Coordinate-wise subtraction |
+| `rect * scalar` | Scale all coordinates |
+| `rect * matrix` | Transform by matrix (returns new Rect) |
+| `rect / scalar` | Divide all coordinates |
+| `rect / matrix` | Transform by inverted matrix |
+| `rect \| point_or_rect` | Union — smallest rect containing both |
+| `rect & rect` | Intersection |
+| `abs(rect)` | Area in pixels² |
+
+```python
+r1 = pymupdf.Rect(0, 0, 100, 100)
+r2 = pymupdf.Rect(80, 80, 200, 200)
+
+union = r1 | r2
+print(union)  # Rect(0.0, 0.0, 200.0, 200.0)
+
+intersection = r1 & r2
+print(intersection)  # Rect(80.0, 80.0, 100.0, 100.0)
+
+scaled = r1 * 2
+print(scaled)  # Rect(0.0, 0.0, 200.0, 200.0)
+```
+
+---
+
+## IRect
+
+`IRect` is a pixel-aligned rectangle identical in concept to `Rect`, but all four coordinates are integers. It is used in contexts that require a discrete grid of pixels, such as specifying the output area of `page.get_pixmap()`.
+
+### Key differences from Rect
+
+- All coordinates (`x0`, `y0`, `x1`, `y1`) are `int`, not `float`.
+- There is no `transform()` method — instead, multiply `IRect * matrix` which returns a rounded `IRect`.
+- `width` and `height` are `int` values (`abs(x1 - x0)` and `abs(y1 - y0)`).
+- Has a `rect` property that returns the equivalent `Rect` with float coordinates.
+- Does not have `is_valid` in some older versions; check the version you use.
+
+### Constructors
+
+<ResponseField name="IRect()" type="IRect">
+  Creates the empty rectangle `IRect(0, 0, 0, 0)`.
+</ResponseField>
+
+<ResponseField name="IRect(x0, y0, x1, y1)" type="IRect">
+  Creates a rectangle from four integer coordinates. Float values are truncated.
+</ResponseField>
+
+<ResponseField name="IRect(irect)" type="IRect">
+  Creates a new copy of another `IRect`.
+</ResponseField>
+
+<ResponseField name="IRect(sequence)" type="IRect">
+  Creates an `IRect` from a Python sequence of 4 numbers. Non-integer values are truncated.
+</ResponseField>
+
+### Additional property
+
+<ResponseField name="rect" type="Rect">
+  Returns the equivalent `Rect` with the same coordinates as floats.
+</ResponseField>
+
+### Example: rendering a page region
+
+```python
+import pymupdf
+
+doc = pymupdf.open("document.pdf")
+page = doc[0]
+
+# Render the full page at 150 DPI (default is 72 DPI)
+zoom = 150 / 72
+mat = pymupdf.Matrix(zoom, zoom)
+pix = page.get_pixmap(matrix=mat)
+
+# Render only a specific pixel region using IRect
+clip = pymupdf.IRect(0, 0, 400, 300)
+pix_clip = page.get_pixmap(matrix=mat, clip=clip)
+pix_clip.save("region.png")
+```
+
+### Example: intersection and union
+
+```python
+import pymupdf
+
+r1 = pymupdf.Rect(10.3, 20.7, 90.1, 80.9)
+ir = r1.round()
+print(ir)         # IRect(10, 20, 91, 81)
+print(ir.width)   # 81
+print(ir.height)  # 61
+
+r2 = pymupdf.IRect(50, 50, 150, 150)
+r1_copy = pymupdf.IRect(ir)
+r1_copy.intersect(r2)
+print(r1_copy)    # IRect(50, 50, 91, 81)
+
+union = ir | r2
+print(union)      # IRect(10, 20, 150, 150)
+```

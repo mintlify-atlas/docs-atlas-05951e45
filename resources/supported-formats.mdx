@@ -1,0 +1,130 @@
+---
+title: "Supported document formats in PyMuPDF"
+description: "Complete list of file formats PyMuPDF can open, read, and convert — including PDF, XPS, EPUB, MOBI, CBZ, FB2, and image formats like PNG, JPEG, TIFF."
+keywords: ["supported formats", "file types", "PDF", "EPUB", "XPS", "image formats", "input formats", "output formats"]
+---
+
+PyMuPDF can open a wide range of document and image formats through a single `pymupdf.open()` call. All formats support page rendering, text extraction, and table extraction. PDF is the only format that supports the full set of write operations.
+
+## Document formats
+
+These formats are opened as multi-page documents. You can render pages, extract text, search for content, and (for PDF) make edits.
+
+| Format | Full name | Read | Write | Notes |
+|--------|-----------|------|-------|-------|
+| PDF | Portable Document Format | Yes | Yes | Full read/write support |
+| XPS | XML Paper Specification | Yes | No | Read-only |
+| EPUB | Electronic Publication | Yes | No | Read-only |
+| MOBI | Mobipocket eBook | Yes | No | Read-only |
+| FB2 | FictionBook 2 | Yes | No | Read-only |
+| CBZ | Comic Book Archive (ZIP) | Yes | No | Read-only |
+| SVG | Scalable Vector Graphics | Yes | No | Rendered as a single page |
+| TXT | Plain text | Yes | No | Rendered as a single page |
+
+## Image formats
+
+When you open an image file with `pymupdf.open()`, PyMuPDF wraps it in a single-page document. This allows the same rendering and text-extraction API to work on images as on documents.
+
+### Input image formats
+
+The following image formats can be opened directly:
+
+- JPG / JPEG
+- PNG
+- BMP
+- GIF
+- TIFF
+- PNM, PGM, PBM, PPM, PAM
+- JXR (JPEG XR)
+- JPX / JP2 (JPEG 2000)
+- PSD (Photoshop Document)
+
+### Output image formats
+
+When saving a `Pixmap` (a rendered page or image), the following formats are available:
+
+- JPG / JPEG
+- PNG
+- PNM, PGM, PBM, PPM, PAM
+- PSD
+- PS (PostScript)
+
+```python
+import pymupdf
+
+doc = pymupdf.open("example.pdf")
+page = doc[0]
+pix = page.get_pixmap(dpi=150)
+pix.save("page.png")   # PNG output
+pix.save("page.jpg")   # JPEG output
+```
+
+## Office formats (DOCX, XLSX, PPTX, HWPX)
+
+<Warning>
+Office format support is limited. These formats are converted to HTML internally before processing, which means layout fidelity is approximate and write operations are not supported.
+</Warning>
+
+PyMuPDF includes partial support for the following Office formats via an internal HTML conversion layer:
+
+| Format | Full name | Read | Write |
+|--------|-----------|------|-------|
+| DOCX | Word Document | Limited | No |
+| XLSX | Excel Spreadsheet | Limited | No |
+| PPTX | PowerPoint Presentation | Limited | No |
+| HWPX | Hangul Word Processor | Limited | No |
+
+Because these formats are converted to HTML before rendering, complex layouts, charts, and embedded objects may not render accurately. For best results with Office documents, convert them to PDF with a native application (such as LibreOffice) before processing with PyMuPDF.
+
+## Output-only formats
+
+In addition to saving as PDF, PyMuPDF can convert any opened document to the following output formats:
+
+| Format | Description |
+|--------|-------------|
+| PDF | Re-save or convert any input document to PDF |
+| PNG | Via `Pixmap.save()` |
+| JPEG | Via `Pixmap.save()` |
+| SVG | Via `Page.get_svg_image()` |
+
+```python
+import pymupdf
+
+# Convert an EPUB to PDF
+doc = pymupdf.open("book.epub")
+doc.save("book.pdf")
+
+# Convert a page to SVG
+page = doc[0]
+svg = page.get_svg_image()
+with open("page.svg", "w") as f:
+    f.write(svg)
+```
+
+## Capability matrix
+
+The following table summarises which capabilities apply across all supported formats versus PDF only.
+
+| Capability | PDF | All other formats |
+|-----------|-----|-------------------|
+| Render pages to image | Yes | Yes |
+| Extract text | Yes | Yes |
+| Extract text as Markdown | Yes | Yes |
+| Extract tables | Yes | Yes |
+| Extract vector graphics | Yes | Yes |
+| Draw vector graphics | Yes | No |
+| Write text to page | Yes | No |
+| Annotations (full) | Yes | No |
+| Form fields | Yes | No |
+| Redactions | Yes | No |
+| Embedded files | Yes | No |
+| Encryption / passwords | Yes | No |
+| Incremental updates | Yes | No |
+| Page labels | Yes | No |
+| Font sub-setting | Yes | No |
+| OCR integration | Yes | Yes |
+| Merge / join documents | Yes | Yes (converted to PDF) |
+
+<Note>
+OCR via Tesseract is available for all document types. PyMuPDF ships with Tesseract compiled into MuPDF's C core; only the Tesseract language data files (tessdata) need to be installed separately.
+</Note>

@@ -1,0 +1,366 @@
+---
+title: "Font class — PyMuPDF API reference"
+description: "API reference for PyMuPDF's Font class: loading system and embedded fonts, measuring text width, accessing glyph information, and font properties."
+---
+
+The `Font` class represents a font as used in MuPDF's internal `fz_font_s` structure. It is required when working with `TextWriter` and `Page.write_text()`. It also provides general font information — bounding box, glyph count, glyph names, and per-character measurements — that is useful for precise text layout. Note that `Font` objects are independent from the font references used by `Page.insert_text()` and `Page.insert_textbox()`.
+
+<Note>
+Unlike fonts embedded through `Page.insert_font()`, a `Font` object created here will **always** be embedded when saved to a PDF. It also natively supports Greek and Cyrillic characters without needing an encoding parameter.
+</Note>
+
+## Constructor
+
+```python
+font = pymupdf.Font(fontname=None, fontfile=None, fontbuffer=None,
+                    script=0, language=None, ordering=-1,
+                    is_bold=0, is_italic=0, is_serif=0)
+```
+
+The constructor tries to locate a font in this order:
+
+| Argument | Action |
+|----------|--------|
+| `fontfile` | Load from file; raises an exception on failure. |
+| `fontbuffer` | Load from bytes buffer; raises an exception on failure. |
+| `ordering >= 0` | Create a CJK universal font ("Droid Sans Fallback Regular"). Always succeeds. |
+| `fontname` | Match a Base-14 font, a CJK alias, or a `pymupdf-fonts` package font. |
+
+<ParamField body="fontname" type="str" default="None">
+  One of the Base-14 font names (e.g., `"helv"`, `"tiro"`), CJK aliases (`"cjk"`, `"china-t"`, `"china-s"`, `"japan"`, `"korea"`), or names from the optional `pymupdf-fonts` package. Also accepts `"Arial"`, `"Times"`, `"Times Roman"`.
+</ParamField>
+
+<ParamField body="fontfile" type="str" default="None">
+  Path to a font file on the local filesystem.
+</ParamField>
+
+<ParamField body="fontbuffer" type="bytes or bytearray or io.BytesIO" default="None">
+  Font file content loaded into memory.
+</ParamField>
+
+<ParamField body="script" type="int" default="0">
+  UCDN script number. Supported values include 24 and 32–35.
+</ParamField>
+
+<ParamField body="language" type="str" default="None">
+  Language code string. Supported values: `"zh-Hant"` (Traditional Chinese), `"zh-Hans"` (Simplified Chinese), `"ja"` (Japanese), `"ko"` (Korean), or any ISO 639 subset code.
+</ParamField>
+
+<ParamField body="ordering" type="int" default="-1">
+  Alternative numeric selector for CJK fonts. `ordering >= 0` creates "Droid Sans Fallback Regular" which supports all CJK and Latin characters.
+</ParamField>
+
+<ParamField body="is_bold" type="bool" default="0">
+  Request a bold variant when searching by name.
+</ParamField>
+
+<ParamField body="is_italic" type="bool" default="0">
+  Request an italic variant when searching by name.
+</ParamField>
+
+<ParamField body="is_serif" type="bool" default="0">
+  Request a serif variant when searching by name.
+</ParamField>
+
+```python
+import pymupdf
+
+# Base-14 font
+font = pymupdf.Font("helv")
+
+# Font from file
+font = pymupdf.Font(fontfile="/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
+
+# CJK universal font
+font = pymupdf.Font("cjk")
+
+# Optional pymupdf-fonts package
+font = pymupdf.Font("figo")  # FiraGO Regular (requires pip install pymupdf-fonts)
+```
+
+<Tip>
+If you need to support both CJK and Latin text, `Font("cjk")` handles everything and is faster because MuPDF never needs to fall back to a second font. However, it adds ~1.65 MB (compressed) to the PDF. For Latin-only content, `"helv"` or `"tiro"` add only ~35 KB.
+</Tip>
+
+---
+
+## Properties
+
+<ResponseField name="name" type="str">
+  The font's name as reported by MuPDF. May be an empty string or `"(null)"`.
+</ResponseField>
+
+<ResponseField name="bbox" type="Rect">
+  The font bounding box — the union of all glyph bounding boxes at fontsize 1.
+</ResponseField>
+
+<ResponseField name="glyph_count" type="int">
+  Total number of glyphs defined in the font.
+</ResponseField>
+
+<ResponseField name="ascender" type="float">
+  The ascender value relative to fontsize 1. Includes everything above the baseline (not just the uppercase/lowercase height difference).
+</ResponseField>
+
+<ResponseField name="descender" type="float">
+  The descender value relative to fontsize 1. Always negative — represents how far descending glyphs (like "g" or "y") extend below the baseline. The total line height is `ascender - descender`.
+</ResponseField>
+
+<ResponseField name="flags" type="dict">
+  A dictionary of boolean font properties:
+
+  ```python
+  {
+      "mono": 0,        # monospaced
+      "serif": 1,       # has serifs
+      "bold": 0,
+      "italic": 0,
+      "substitute": 0,  # substitute font
+      "stretch": 0,
+      "fake-bold": 0,
+      "fake-italic": 0,
+      "opentype": 0,
+      "invalid-bbox": 0,
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="is_bold" type="bool">
+  `True` if the font is bold.
+</ResponseField>
+
+<ResponseField name="is_italic" type="bool">
+  `True` if the font is italic.
+</ResponseField>
+
+<ResponseField name="is_monospaced" type="bool">
+  `True` if the font is monospaced (fixed-width).
+</ResponseField>
+
+<ResponseField name="is_serif" type="bool">
+  `True` if the font has serifs; `False` for sans-serif.
+</ResponseField>
+
+<ResponseField name="buffer" type="bytes">
+  A copy of the binary font file content.
+</ResponseField>
+
+---
+
+## Methods
+
+### text_length
+
+Calculate the total rendered width of a Unicode string in points.
+
+<ParamField body="text" type="str" required>
+  UTF-8 encoded string to measure.
+</ParamField>
+
+<ParamField body="fontsize" type="float" default="11">
+  Font size in points.
+</ParamField>
+
+Returns a `float`. Characters not in the font are automatically looked up in a fallback font.
+
+```python
+font = pymupdf.Font("helv")
+width = font.text_length("Hello, World!", fontsize=12)
+print(f"Width: {width:.2f} pt")
+```
+
+---
+
+### char_lengths
+
+Return the rendered width of each individual character in a string as a tuple.
+
+<ParamField body="text" type="str" required>
+  UTF-8 encoded string.
+</ParamField>
+
+<ParamField body="fontsize" type="float" default="11">
+  Font size in points.
+</ParamField>
+
+Returns a `tuple` of floats. The sum equals `text_length(text, fontsize)` (within rounding).
+
+```python
+font = pymupdf.Font("helv")
+widths = font.char_lengths("PyMuPDF", fontsize=11)
+# (7.34, 5.5, 9.16, 6.12, 7.34, 7.94, 6.72)
+```
+
+---
+
+### glyph_advance
+
+Return the advance width of a single glyph at fontsize 1.
+
+<ParamField body="chr" type="int" required>
+  Unicode code point of the character (`ord()` of the character).
+</ParamField>
+
+Returns a `float`. Multiply by `fontsize` to get the width in points.
+
+```python
+font = pymupdf.Font("helv")
+width_at_12pt = font.glyph_advance(ord("A")) * 12
+```
+
+---
+
+### glyph_bbox
+
+Return the bounding rectangle of a single glyph at fontsize 1.
+
+<ParamField body="chr" type="int" required>
+  Unicode code point (`ord()` of the character).
+</ParamField>
+
+Returns a `Rect`. Multiply by `fontsize` to get actual dimensions.
+
+```python
+bbox = font.glyph_bbox(ord("g"))
+# bbox.y1 is the descender depth at fontsize 1
+```
+
+---
+
+### has_glyph
+
+Check whether the font (or a fallback font) contains a glyph for a given Unicode code point. Returns the glyph ID, or `0` if not found.
+
+<ParamField body="chr" type="int" required>
+  Unicode code point to look up.
+</ParamField>
+
+<ParamField body="language" type="str" default="None">
+  Language hint (currently unused).
+</ParamField>
+
+<ParamField body="script" type="int" default="0">
+  UCDN script number.
+</ParamField>
+
+<ParamField body="fallback" type="bool" default="False">
+  When `True`, also searches fallback fonts. When `False`, only the current font is checked.
+</ParamField>
+
+Returns an `int` (glyph ID). Use this to detect "TOFU" (missing glyph boxes) before rendering.
+
+```python
+font = pymupdf.Font("helv")
+if font.has_glyph(ord("Ω")):
+    print("Font supports Omega")
+else:
+    print("Omega will be rendered from a fallback font")
+```
+
+---
+
+### glyph_name_to_unicode
+
+Look up the Unicode value for a glyph name using the Adobe Glyph List.
+
+<ParamField body="name" type="str" required>
+  Adobe glyph name (e.g., `"Sigma"`, `"infinity"`, `"numbersign"`).
+</ParamField>
+
+Returns an `int`. Returns `65533` (U+FFFD, the replacement character) for unknown names.
+
+```python
+font = pymupdf.Font("helv")
+code_point = font.glyph_name_to_unicode("infinity")  # → 8734
+print(chr(code_point))  # → ∞
+```
+
+---
+
+### unicode_to_glyph_name
+
+Return the Adobe glyph name for a Unicode code point.
+
+<ParamField body="ch" type="int" required>
+  Unicode code point (`ord()` of the character).
+</ParamField>
+
+Returns a `str`. Returns `".notfound"` for unknown code points.
+
+```python
+font = pymupdf.Font("helv")
+name = font.unicode_to_glyph_name(ord("#"))  # → "numbersign"
+```
+
+<Note>
+`unicode_to_glyph_name()` and `glyph_name_to_unicode()` look up data from the Adobe Glyph List and are not specific to any particular font. They are also available as module-level functions `pymupdf.unicode_to_glyph_name()` and `pymupdf.glyph_name_to_unicode()`.
+</Note>
+
+---
+
+### valid_codepoints
+
+Return an array of all Unicode code points supported by this font (without using fallbacks).
+
+Returns an `array.array` of integers, length at most `glyph_count`. Only meaningful for fonts that have a character map (`/ToUnicode` in PDF terms).
+
+```python
+import pymupdf
+
+font = pymupdf.Font("helv")
+codepoints = font.valid_codepoints()
+for cp in codepoints[:10]:
+    print(f"U+{cp:04X}  {chr(cp)}")
+```
+
+---
+
+## Optional pymupdf-fonts package
+
+Install the optional `pymupdf-fonts` package (`pip install pymupdf-fonts`) to unlock additional font names:
+
+| Code | Font | Notes |
+|------|------|-------|
+| `figo` | FiraGO Regular | Narrower than Helvetica; supports Latin, Cyrillic, Greek, Thai, Arabic, Hebrew, Devanagari |
+| `figbo` | FiraGO Bold | |
+| `figit` | FiraGO Italic | |
+| `figbi` | FiraGO Bold Italic | |
+| `fimo` | Fira Mono Regular | Monospaced |
+| `fimbo` | Fira Mono Bold | |
+| `spacemo` | Space Mono Regular | Monospaced, Latin Extended |
+| `spacembo` | Space Mono Bold | |
+| `spacemit` | Space Mono Italic | |
+| `spacembi` | Space Mono Bold-Italic | |
+| `math` | Noto Sans Math Regular | Mathematical symbols |
+| `music` | Noto Music Regular | Musical symbols |
+| `symbol1` | Noto Sans Symbols Regular | Symbol replacement for `symb` |
+| `symbol2` | Noto Sans Symbols2 Regular | Extended symbol set |
+| `notos` | Noto Sans Regular | Alternative to Helvetica |
+| `notosit` | Noto Sans Italic | |
+| `notosbo` | Noto Sans Bold | |
+| `notosbi` | Noto Sans Bold-Italic | |
+
+---
+
+## Complete example
+
+```python
+import pymupdf
+
+doc = pymupdf.open()
+page = doc.new_page()
+
+font = pymupdf.Font("helv")
+writer = pymupdf.TextWriter(page.rect)
+
+# Measure text before placing
+text = "Hello, PyMuPDF!"
+width = font.text_length(text, fontsize=14)
+print(f"Text width: {width:.1f} pt")
+
+# Place text
+writer.append(pymupdf.Point(72, 100), text, font=font, fontsize=14)
+writer.write_text(page)
+
+doc.save("font-example.pdf")
+```

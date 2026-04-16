@@ -1,0 +1,334 @@
+---
+title: "TOOLS class — configuration and cache — PyMuPDF API"
+description: "Reference for PyMuPDF's TOOLS object: global configuration, cache management, font caching, resource usage, and diagnostic functions."
+keywords: ["pymupdf", "TOOLS", "cache", "store", "mupdf warnings", "configuration", "fitz_config"]
+---
+
+PyMuPDF automatically creates a singleton instance of the `TOOLS` class named `pymupdf.TOOLS` when the module is imported. Through this object you control global behavior — glyph height measurement, font name display, annotation ID prefixes, ICC color management, MuPDF store (cache) size — and can query diagnostics like accumulated MuPDF warnings or the build configuration.
+
+---
+
+## Text extraction settings
+
+### `TOOLS.set_small_glyph_heights(on)` → `bool`
+
+Controls whether text extraction and search return reduced bounding-box heights based on the font size rather than the font's full ascender/descender metrics.
+
+<ParamField path="on" type="bool | None">
+  Pass `True` to activate small glyph heights, `False` to deactivate, or `None` / omit to query the current setting without changing it.
+</ParamField>
+
+Returns the current setting as `True` or `False`.
+
+```python
+import pymupdf
+
+# Query current setting
+current = pymupdf.TOOLS.set_small_glyph_heights()
+
+# Enable small glyph heights
+pymupdf.TOOLS.set_small_glyph_heights(True)
+
+# Restore default
+pymupdf.TOOLS.set_small_glyph_heights(False)
+```
+
+<Note>
+  Text extraction options `"xml"`, `"xhtml"`, and `"html"` delegate directly to MuPDF and are not affected by this setting.
+</Note>
+
+---
+
+### `TOOLS.set_subset_fontnames(on)` → `bool`
+
+Controls whether text extraction includes the subset prefix in font names (e.g. `"NOHSJV+Calibri-Light"` vs. `"Calibri-Light"`).
+
+<ParamField path="on" type="bool | None">
+  `True` to include the subset prefix tag, `False` to strip it (the default), or `None` / omit to query the current value.
+</ParamField>
+
+Returns the current setting.
+
+```python
+import pymupdf
+
+# Show full subset-tagged names in dict/json/rawdict extractions
+pymupdf.TOOLS.set_subset_fontnames(True)
+
+page = doc[0]
+blocks = page.get_text("dict")["blocks"]
+# font name will appear as e.g. "NOHSJV+Calibri-Light"
+
+pymupdf.TOOLS.set_subset_fontnames(False)  # restore default
+```
+
+<Note>
+  Only `"dict"`, `"json"`, `"rawdict"`, and `"rawjson"` extraction options are affected. The `"xml"`, `"xhtml"`, and `"html"` options are not influenced.
+</Note>
+
+---
+
+## Annotation identity
+
+### `TOOLS.set_annot_stem(stem)` → `str`
+
+Sets or queries the prefix used when generating identifiers for new annotations, form fields, and links.
+
+<ParamField path="stem" type="str | None">
+  A string of up to 50 characters to use as the prefix. Omit or pass `None` to query the current prefix without changing it. Default is `"fitz"`.
+</ParamField>
+
+Generated identifiers follow the patterns `"<stem>-Annn"` (annotations), `"<stem>-Wnnn"` (widgets/fields), and `"<stem>-Lnnn"` (links), where `nnn` enforces uniqueness.
+
+```python
+import pymupdf
+
+pymupdf.TOOLS.set_annot_stem()        # "fitz"  (default)
+pymupdf.TOOLS.set_annot_stem("app")   # "app"
+pymupdf.TOOLS.set_annot_stem()        # "app"
+```
+
+---
+
+## Color management
+
+### `TOOLS.set_icc(on)`
+
+Enables or disables ICC color profile support for rendering.
+
+<ParamField path="on" type="bool" required>
+  `True` to enable ICC color management, `False` to disable it.
+</ParamField>
+
+<Warning>
+  Raises `ValueError` if ICC support was not compiled into the MuPDF build. Check `pymupdf.TOOLS.fitz_config["icc"]` before calling.
+</Warning>
+
+```python
+import pymupdf
+
+if pymupdf.TOOLS.fitz_config.get("icc"):
+    pymupdf.TOOLS.set_icc(True)
+```
+
+---
+
+## MuPDF diagnostics
+
+### `TOOLS.mupdf_warnings(reset)` → `str`
+
+Returns all accumulated MuPDF warning and error messages as a single newline-separated string.
+
+<ParamField path="reset" type="bool" default="True">
+  Whether to clear the internal buffer after returning the messages.
+</ParamField>
+
+```python
+import pymupdf
+
+doc = pymupdf.open("damaged.pdf")
+# ... perform operations ...
+warnings = pymupdf.TOOLS.mupdf_warnings()
+if warnings:
+    print("MuPDF issues encountered:")
+    print(warnings)
+```
+
+---
+
+### `TOOLS.reset_mupdf_warnings()`
+
+Empties the MuPDF warnings and errors buffer immediately.
+
+```python
+import pymupdf
+
+pymupdf.TOOLS.reset_mupdf_warnings()
+assert pymupdf.TOOLS.mupdf_warnings(reset=False) == ""
+```
+
+---
+
+### `TOOLS.mupdf_display_errors(value)` → `bool`
+
+Controls whether MuPDF errors are forwarded to the PyMuPDF message stream (stdout by default). MuPDF errors are always stored in the warnings buffer regardless of this setting.
+
+<ParamField path="value" type="bool | None">
+  `True` to display errors, `False` to suppress, `None` to query without changing.
+</ParamField>
+
+---
+
+### `TOOLS.mupdf_display_warnings(value)` → `bool`
+
+Controls whether MuPDF warnings are forwarded to the PyMuPDF message stream.
+
+<ParamField path="value" type="bool | None">
+  `True` to display warnings, `False` to suppress, `None` to query without changing.
+</ParamField>
+
+---
+
+## MuPDF store (cache) management
+
+MuPDF maintains an internal object store that caches already-decoded images, fonts, and other resources to improve performance. PyMuPDF initializes this store with a 256 MB limit.
+
+### `TOOLS.store_maxsize`
+
+The configured maximum size of the MuPDF store in bytes. The default value is `268_435_456` (256 MB). A value of `0` means unlimited growth is permitted.
+
+```python
+import pymupdf
+
+pymupdf.TOOLS.store_maxsize  # 268435456
+```
+
+---
+
+### `TOOLS.store_size`
+
+The current number of bytes in use by the MuPDF store. This value grows as documents are opened and rendered, and decreases automatically when the store approaches its maximum.
+
+```python
+import pymupdf
+
+doc = pymupdf.open("report.pdf")
+pix = doc[0].get_pixmap()
+print(pymupdf.TOOLS.store_size)  # e.g. 454519
+```
+
+---
+
+### `TOOLS.store_shrink(percent)` → `int`
+
+Frees at least `percent` percent of the store's current contents using a least-recently-used eviction policy.
+
+<ParamField path="percent" type="int" required>
+  Percentage of current store size to free. Values ≥ 100 empty the store completely; `0` has no effect.
+</ParamField>
+
+Returns the new store size after eviction.
+
+```python
+import pymupdf
+
+doc = pymupdf.open("report.pdf")
+pix = doc[0].get_pixmap()
+print(pymupdf.TOOLS.store_size)   # e.g. 454519
+
+pymupdf.TOOLS.store_shrink(50)    # free ~50%
+print(pymupdf.TOOLS.store_size)   # e.g. 13471
+
+pymupdf.TOOLS.store_shrink(100)   # empty entirely
+print(pymupdf.TOOLS.store_size)   # 0
+```
+
+---
+
+## Build configuration
+
+### `TOOLS.fitz_config`
+
+A dictionary describing which features were enabled at build time. Inspect this before calling features that depend on optional MuPDF capabilities (such as ICC or EPUB support).
+
+<ResponseField name="plotter-g" type="bool">Grayscale colorspace rendering.</ResponseField>
+<ResponseField name="plotter-rgb" type="bool">RGB colorspace rendering.</ResponseField>
+<ResponseField name="plotter-cmyk" type="bool">CMYK colorspace rendering.</ResponseField>
+<ResponseField name="plotter-n" type="bool">Overprint (N-color) rendering.</ResponseField>
+<ResponseField name="pdf" type="bool">PDF document support.</ResponseField>
+<ResponseField name="xps" type="bool">XPS document support.</ResponseField>
+<ResponseField name="svg" type="bool">SVG document support.</ResponseField>
+<ResponseField name="cbz" type="bool">CBZ (comic book ZIP) support.</ResponseField>
+<ResponseField name="img" type="bool">IMG document support.</ResponseField>
+<ResponseField name="html" type="bool">HTML document support.</ResponseField>
+<ResponseField name="epub" type="bool">EPUB document support.</ResponseField>
+<ResponseField name="jpx" type="bool">JPEG2000 image support.</ResponseField>
+<ResponseField name="js" type="bool">JavaScript support.</ResponseField>
+<ResponseField name="icc" type="bool">ICC color profile support.</ResponseField>
+<ResponseField name="base14" type="bool">Base-14 fonts (should always be `True`).</ResponseField>
+<ResponseField name="tofu" type="bool">All TOFU fallback fonts.</ResponseField>
+<ResponseField name="tofu-cjk" type="bool">CJK (China/Japan/Korea) font subset.</ResponseField>
+
+```python
+import pymupdf
+
+cfg = pymupdf.TOOLS.fitz_config
+print(cfg)
+# {
+#   'plotter-g': True, 'plotter-rgb': True, 'plotter-cmyk': True,
+#   'plotter-n': True, 'pdf': True, 'xps': True, 'svg': True,
+#   'cbz': True, 'img': True, 'html': True, 'epub': True,
+#   'jpx': True, 'js': True, 'tofu': False, 'tofu-cjk': True,
+#   'icc': True, 'base14': True, ...
+# }
+```
+
+---
+
+## Anti-aliasing
+
+### `TOOLS.show_aa_level()` → `dict`
+
+Returns current anti-aliasing settings for graphics and text rendering.
+
+```python
+import pymupdf
+
+pymupdf.TOOLS.show_aa_level()
+# {'graphics': 8, 'text': 8, 'graphics_min_line_width': 0.0}
+```
+
+---
+
+### `TOOLS.set_aa_level(level)`
+
+Sets the anti-aliasing bit depth for both graphics and text rendering.
+
+<ParamField path="level" type="int" required>
+  Integer from `0` (no anti-aliasing) to `8` (maximum quality). Values outside this range are silently clamped.
+</ParamField>
+
+---
+
+## Unique ID generation
+
+### `TOOLS.gen_id()` → `int`
+
+Returns a unique, monotonically increasing positive integer. Suitable for generating database keys or other identifiers. Resets to `1` if `sys.maxsize` is exceeded.
+
+```python
+import pymupdf
+
+pymupdf.TOOLS.gen_id()  # 1
+pymupdf.TOOLS.gen_id()  # 2
+pymupdf.TOOLS.gen_id()  # 3
+```
+
+---
+
+## Example session
+
+The following session demonstrates typical store monitoring and management during a document rendering workflow.
+
+```python
+import pymupdf
+
+print(pymupdf.TOOLS.store_maxsize)  # 268435456
+print(pymupdf.TOOLS.store_size)     # 0
+
+doc = pymupdf.open("demo1.pdf")
+pix = doc[0].get_pixmap(alpha=False)
+
+print(pymupdf.TOOLS.store_size)     # e.g. 454519
+
+# Release at least 50% of cached objects
+pymupdf.TOOLS.store_shrink(50)
+print(pymupdf.TOOLS.store_size)     # e.g. 13471
+
+# Generate unique IDs
+pymupdf.TOOLS.gen_id()  # 1
+pymupdf.TOOLS.gen_id()  # 2
+
+doc.close()
+print(pymupdf.TOOLS.store_size)     # 0
+```

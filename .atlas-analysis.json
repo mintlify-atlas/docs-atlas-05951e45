@@ -1,24 +1,11 @@
 {
-  "$schema": "https://mintlify.com/docs.json",
-  "name": "PyMuPDF",
+  "projectType": "sdk-library",
+  "projectName": "PyMuPDF",
+  "projectDescription": "A high-performance Python library for data extraction, analysis, conversion, and manipulation of PDF, XPS, EPUB, and other document formats, built on top of MuPDF.",
   "theme": "palm",
-  "colors": {
-    "primary": "#f76c1b",
-    "light": "#f8d3ad",
-    "dark": "#4c7fab"
-  },
-  "favicon": "https://media.brand.dev/db4da449-acf0-4705-bb2e-0b8fbd138c26.png",
-  "navbar": {
-    "primary": {
-      "type": "github",
-      "href": "https://github.com/pymupdf/PyMuPDF"
-    }
-  },
-  "footer": {
-    "socials": {
-      "github": "https://github.com/pymupdf/PyMuPDF"
-    }
-  },
+  "primaryColor": "#f76c1b",
+  "lightColor": "#f8d3ad",
+  "darkColor": "#4c7fab",
   "navigation": {
     "tabs": [
       {
@@ -113,5 +100,34 @@
         ]
       }
     ]
-  }
+  },
+  "keyFeatures": [
+    "High-performance PDF text and data extraction",
+    "PDF manipulation: merge, split, encrypt, annotate",
+    "Image and pixmap rendering from document pages",
+    "Table extraction from PDFs",
+    "OCR support via Tesseract integration",
+    "Markdown output for LLM/RAG pipelines via pymupdf4llm",
+    "Support for 20+ document formats (PDF, XPS, EPUB, MOBI, CBZ, FB2, etc.)",
+    "Command-line interface for batch operations",
+    "Drawing and graphics primitives",
+    "Story class for document layout and typesetting"
+  ],
+  "publicApiSurface": [
+    "pymupdf.open() / pymupdf.Document()",
+    "Document.load_page() / Document.__iter__()",
+    "Page.get_text()",
+    "Page.get_pixmap()",
+    "Page.get_textpage_ocr()",
+    "Page.find_tables()",
+    "Page.insert_text() / Page.insert_image()",
+    "Page.add_highlight_annot() / Page.add_text_annot()",
+    "Pixmap.save() / Pixmap.tobytes()",
+    "Document.save() / Document.tobytes()",
+    "Document.insert_pdf() / Document.select()",
+    "Shape.draw_rect() / Shape.draw_line()",
+    "TextWriter.append() / TextWriter.write_text()",
+    "pymupdf4llm.to_markdown()",
+    "pymupdf.__main__ CLI (clean, convert, extract, etc.)"
+  ]
 }

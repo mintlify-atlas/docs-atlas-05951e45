@@ -1,0 +1,332 @@
+---
+title: "Widget class — PyMuPDF API reference"
+description: "API reference for PyMuPDF's Widget class representing interactive PDF form fields: text fields, checkboxes, radio buttons, list boxes, and combo boxes."
+---
+
+The `Widget` class represents a PDF form field, also known as a widget. Form fields are a special category of PDF annotation that allow users with limited permissions to enter information — the primary use case is filling out PDF forms. Widgets live on PDF pages and share much of their internal structure with annotations, but PyMuPDF treats them separately: `Page.first_annot` and `Annot.next` never return widget objects, and `Page.first_widget` and `Widget.next` never return non-widget annotations.
+
+<Note>
+Widgets are PDF-only objects. They lose their connection to the page when the page becomes unavailable. This is especially relevant when calling `Widget.update()`, which will fail if the original page object is no longer valid.
+</Note>
+
+## Supported widget types
+
+<AccordionGroup>
+  <Accordion title="Text (PDF_WIDGET_TYPE_TEXT)">
+    Free-form text input. Supports maximum length and format validation via JavaScript.
+  </Accordion>
+  <Accordion title="Push button (PDF_WIDGET_TYPE_BUTTON)">
+    A clickable button. Only supports the `script` JavaScript action.
+  </Accordion>
+  <Accordion title="Check box (PDF_WIDGET_TYPE_CHECKBOX)">
+    A boolean on/off toggle. The "On" value is always `"Yes"`. Use `ZaDb` font at size 0 for best results across PDF viewers.
+  </Accordion>
+  <Accordion title="Radio button (PDF_WIDGET_TYPE_RADIOBUTTON)">
+    A mutually exclusive selection button within a group. PyMuPDF does not support creating interconnected radio button groups, but does support selecting and deselecting individual radio buttons.
+  </Accordion>
+  <Accordion title="List box (PDF_WIDGET_TYPE_LISTBOX)">
+    A scrollable list of choices. Requires `choice_values` to contain at least two items.
+  </Accordion>
+  <Accordion title="Combo box (PDF_WIDGET_TYPE_COMBOBOX)">
+    A drop-down list of choices. Requires `choice_values` to contain at least two items.
+  </Accordion>
+  <Accordion title="Signature (PDF_WIDGET_TYPE_SIGNATURE)">
+    Read-only. PyMuPDF does not support creating or updating signature fields.
+  </Accordion>
+</AccordionGroup>
+
+## Getting widgets from a page
+
+```python
+import pymupdf
+
+doc = pymupdf.open("form.pdf")
+page = doc[0]
+
+widget = page.first_widget
+while widget:
+    print(widget.field_name, widget.field_type_string, widget.field_value)
+    widget = widget.next
+```
+
+## Reading and setting field values
+
+```python
+# Read
+widget = page.first_widget
+print(widget.field_value)
+
+# Set a text field
+widget.field_value = "Alice"
+widget.update()
+
+# Set a checkbox (recommended approach)
+widget.field_value = widget.on_state()
+widget.update()
+
+# Deselect a radio button
+widget.field_value = False
+widget.update()
+```
+
+<Warning>
+After creating or updating a widget, reload the page before accessing it again (e.g., for pixmap rendering): `page = doc.reload_page(page)`.
+</Warning>
+
+---
+
+## Properties
+
+### Identity and type
+
+<ResponseField name="field_name" type="str">
+  Mandatory string identifying the field. No duplicate checking is performed.
+</ResponseField>
+
+<ResponseField name="field_label" type="str">
+  Optional alternate field name, typically used for help text or notes. Defaults to the field name.
+</ResponseField>
+
+<ResponseField name="field_type" type="int">
+  Mandatory integer in the range `1`–`7` identifying the field type. Cannot be changed when updating an existing widget.
+</ResponseField>
+
+<ResponseField name="field_type_string" type="str">
+  Human-readable string derived from `field_type` (e.g., `"Text"`, `"CheckBox"`, `"ListBox"`).
+</ResponseField>
+
+<ResponseField name="field_flags" type="int">
+  Integer encoding a large set of field properties. Changing this value can alter the effective field type, so be careful.
+</ResponseField>
+
+<ResponseField name="field_value" type="any">
+  The current value of the field. The type depends on the widget type (string for text/list/combo, bool or string for checkboxes and radio buttons).
+</ResponseField>
+
+<ResponseField name="xref" type="int">
+  The PDF cross-reference number of the widget.
+</ResponseField>
+
+### Appearance
+
+<ResponseField name="rect" type="Rect">
+  Rectangle containing the field on the page.
+</ResponseField>
+
+<ResponseField name="fill_color" type="list[float]">
+  Background (fill) color as a list of up to 4 floats. `None` means no background color.
+</ResponseField>
+
+<ResponseField name="border_color" type="list[float]">
+  Border color as a list of up to 4 floats. `None` disables border rendering (border style and width are ignored).
+</ResponseField>
+
+<ResponseField name="border_style" type="str">
+  Line style of the border. Default is `"S"` (Solid). Only the first character is used. See `Annot.border` for valid values.
+</ResponseField>
+
+<ResponseField name="border_width" type="float">
+  Width of the border line in points. Default is `1`.
+</ResponseField>
+
+<ResponseField name="border_dashes" type="list[int]">
+  Dash pattern for the border line. Only meaningful when `border_style == "D"` and `border_color` is set.
+</ResponseField>
+
+<ResponseField name="button_caption" type="str">
+  Caption string displayed on button-type fields.
+</ResponseField>
+
+### Text formatting
+
+<ResponseField name="text_color" type="list[float]">
+  Text color as a list of 1, 3, or 4 floats. Default is black `[0, 0, 0]`.
+</ResponseField>
+
+<ResponseField name="text_font" type="str">
+  Font reference name for the field text. Default is `"Helv"` (Helvetica). Must be one of the 14 base font reference names or an existing form font name. See the font table below.
+</ResponseField>
+
+<ResponseField name="text_fontsize" type="float">
+  Font size for field text. Default is `0`, which tells PDF viewers to auto-size the text to fit the field rectangle.
+</ResponseField>
+
+<ResponseField name="text_maxlen" type="int">
+  Maximum number of characters accepted. PDF viewers enforce this limit. Text fields only.
+</ResponseField>
+
+### Choice fields
+
+<ResponseField name="choice_values" type="list[str]">
+  Valid choices for list boxes and combo boxes. Mandatory for those types and must contain at least two items.
+</ResponseField>
+
+### Button fields
+
+<ResponseField name="is_signed" type="bool">
+  Signing status for signature fields. `None` for all other types.
+</ResponseField>
+
+### Navigation
+
+<ResponseField name="next" type="Widget">
+  The next form field on the page, or `None` for the last widget.
+</ResponseField>
+
+---
+
+## Methods
+
+### update
+
+Reflect all Python-side changes back into the PDF. **This method must be called after any change to a widget.**
+
+<ParamField body="sync_flags" type="bool" default="False">
+  When `True`, the widget's `field_flags` value is propagated to the `/Parent` object and all widgets in its `/Kids` array. This provides a convenient way to mark all instances of a field (across pages) as read-only simultaneously.
+</ParamField>
+
+```python
+widget.field_value = "confirmed"
+widget.update()
+```
+
+---
+
+### reset
+
+Reset the field's value to its default (as defined in the PDF) or remove it if no default exists. Call `update()` afterwards to commit the change.
+
+```python
+widget.reset()
+widget.update()
+```
+
+---
+
+### button_states
+
+Return the named on/off states for button-type widgets. Useful for discovering the "On" value when it is something other than `"Yes"`.
+
+Returns a dictionary with `"normal"` and `"down"` keys, each holding a list of state names. Returns `None` for non-button types.
+
+```python
+states = widget.button_states()
+# Example: {'down': ['Male', 'Off'], 'normal': ['Male', 'Off']}
+print(states)
+```
+
+---
+
+### on_state
+
+Return the value that sets a checkbox or radio button to its "selected" state.
+
+- For check boxes, always returns `True` (the actual stored value is `"Yes"`).
+- For radio buttons, returns the string value that is not `"Off"` (e.g., `"Male"`).
+- For all other field types, returns `None`.
+
+```python
+# Recommended way to select a checkbox or radio button
+widget.field_value = widget.on_state()
+widget.update()
+
+# Check if a button is selected
+is_selected = (widget.field_value == widget.on_state())
+```
+
+---
+
+## JavaScript actions
+
+Widgets can carry JavaScript code that is executed at specific times. Button-type widgets only support `script`; the other script attributes are automatically set to `None` for buttons.
+
+<ResponseField name="script" type="str">
+  JavaScript for the field action (button click, or general action trigger). Set to `None` to remove.
+</ResponseField>
+
+<ResponseField name="script_stroke" type="str">
+  JavaScript executed on each keystroke in a text field or combo box. Used to validate input character by character.
+</ResponseField>
+
+<ResponseField name="script_format" type="str">
+  JavaScript executed before the field value is formatted for display. May modify the displayed value.
+</ResponseField>
+
+<ResponseField name="script_change" type="str">
+  JavaScript executed when the field value changes. Used to validate the new value.
+</ResponseField>
+
+<ResponseField name="script_calc" type="str">
+  JavaScript executed to recalculate this field when another field changes.
+</ResponseField>
+
+<ResponseField name="script_blur" type="str">
+  JavaScript executed when the field loses focus.
+</ResponseField>
+
+<ResponseField name="script_focus" type="str">
+  JavaScript executed when the field gains focus.
+</ResponseField>
+
+```python
+# Add a date format/validation script pair
+widget.script_format = 'AFDate_FormatEx("mm/dd/yyyy");'
+widget.script_stroke = 'AFDate_KeystrokeEx("mm/dd/yyyy");'
+widget.update()
+
+# Remove a script
+widget.script_calc = None
+widget.update()
+```
+
+---
+
+## Standard widget fonts
+
+Widgets use an independent font resource object (`/DR`). The following reference names map to the 14 PDF base fonts:
+
+| Reference | Font name |
+|-----------|-----------|
+| `CoBI` | Courier-BoldOblique |
+| `CoBo` | Courier-Bold |
+| `CoIt` | Courier-Oblique |
+| `Cour` | Courier |
+| `HeBI` | Helvetica-BoldOblique |
+| `HeBo` | Helvetica-Bold |
+| `HeIt` | Helvetica-Oblique |
+| `Helv` | Helvetica (default) |
+| `Symb` | Symbol |
+| `TiBI` | Times-BoldItalic |
+| `TiBo` | Times-Bold |
+| `TiIt` | Times-Italic |
+| `TiRo` | Times-Roman |
+| `ZaDb` | ZapfDingbats |
+
+<Tip>
+For check boxes, use `text_font = "ZaDb"` and `text_fontsize = 0`. Most PDF viewers will then render a correctly sized tick mark automatically when the box is clicked.
+</Tip>
+
+Use `Document.FormFonts` to discover fonts already embedded in an existing form, which can also be used by specifying the exact font name string.
+
+---
+
+## Complete example
+
+```python
+import pymupdf
+
+doc = pymupdf.open("form.pdf")
+page = doc[0]
+
+widget = page.first_widget
+while widget:
+    if widget.field_type_string == "Text":
+        widget.field_value = "Filled by PyMuPDF"
+        widget.update()
+    elif widget.field_type_string == "CheckBox":
+        widget.field_value = widget.on_state()
+        widget.update()
+    widget = widget.next
+
+doc.save("form-filled.pdf")
+```

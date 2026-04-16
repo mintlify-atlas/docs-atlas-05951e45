@@ -1,0 +1,158 @@
+---
+title: "Point class — PyMuPDF API reference"
+description: "API reference for PyMuPDF's Point class: 2D coordinates for PDF page space, distance calculation, transformation, and arithmetic operations."
+keywords: ["PyMuPDF", "Point", "2D coordinates", "geometry", "PDF page space", "transformation"]
+---
+
+`Point` represents a location in the two-dimensional plane, defined by its `x` and `y` float coordinates. Points are used throughout PyMuPDF wherever a position in page space is needed — as constructor arguments for `Rect` and `Quad`, as the insertion position for text and images, as drawing endpoints, and as results of geometric operations. Coordinates follow PDF convention: the y-axis increases downward, and units are points (72 points per inch).
+
+## Constructors
+
+<ResponseField name="Point()" type="Point">
+  Creates the origin `Point(0.0, 0.0)`.
+</ResponseField>
+
+<ResponseField name="Point(x, y)" type="Point">
+  Creates a point from two float coordinates.
+</ResponseField>
+
+<ResponseField name="Point(point)" type="Point">
+  Creates a new copy of another `Point`.
+</ResponseField>
+
+<ResponseField name="Point(sequence)" type="Point">
+  Creates a point from a Python sequence of exactly 2 numbers.
+</ResponseField>
+
+```python
+import pymupdf
+
+p1 = pymupdf.Point(72, 144)          # x=72, y=144
+p2 = pymupdf.Point([72, 144])        # from list
+p3 = pymupdf.Point(p1)               # copy
+print(p1 == p2 == p3)                # True
+```
+
+## Properties
+
+<ResponseField name="x" type="float">
+  The x-coordinate (horizontal position, increasing to the right).
+</ResponseField>
+
+<ResponseField name="y" type="float">
+  The y-coordinate (vertical position, increasing downward in PDF space).
+</ResponseField>
+
+<ResponseField name="unit" type="Point">
+  The unit vector in the direction of this point — each coordinate divided by `norm(point)`. Its x and y values equal the cosine and sine of the angle the point makes with the x-axis. Returns `Point(0, 0)` if the point is at the origin.
+</ResponseField>
+
+<ResponseField name="abs_unit" type="Point">
+  Same as `unit`, but with the absolute values of both coordinates.
+</ResponseField>
+
+## Methods
+
+<ResponseField name="distance_to(x, unit='px')" type="float">
+  Returns the distance from this point to `x`, which may be a `point_like` or a `rect_like`. The `unit` parameter accepts `'px'` (pixels, default), `'in'` (inches), `'cm'` (centimeters), or `'mm'` (millimeters).
+
+  When `x` is a rectangle:
+  - The distance is the length of the shortest line from this point to any side of the rectangle.
+  - Distance is calculated to the **finite** version of the rectangle.
+  - Distance is 0 if the point is **inside** the rectangle.
+
+  ```python
+  import pymupdf
+
+  p = pymupdf.Point(100, 100)
+  q = pymupdf.Point(200, 100)
+  print(p.distance_to(q))          # 100.0 (pixels)
+  print(p.distance_to(q, "in"))    # 1.3888... (inches at 72 dpi)
+
+  r = pymupdf.Rect(0, 0, 200, 200)
+  print(p.distance_to(r))          # 0.0 — point is inside
+  print(pymupdf.Point(300, 100).distance_to(r))  # 100.0
+  ```
+</ResponseField>
+
+<ResponseField name="transform(m)" type="Point">
+  Applies `matrix_like` `m` to this point in place and returns `self`. The point is replaced by the result of the affine transformation.
+
+  ```python
+  import pymupdf
+
+  p = pymupdf.Point(100, 0)
+  mat = pymupdf.Matrix(90)   # rotate 90 degrees counter-clockwise
+  p.transform(mat)
+  # x ≈ 0, y ≈ 100  (rotated)
+  ```
+</ResponseField>
+
+<ResponseField name="norm()" type="float">
+  Returns the Euclidean norm (distance from the origin) of the point. Equivalent to `abs(point)`.
+
+  ```python
+  p = pymupdf.Point(3, 4)
+  print(p.norm())   # 5.0
+  print(abs(p))     # 5.0
+  ```
+</ResponseField>
+
+## Arithmetic operators
+
+`Point` supports arithmetic with scalars, other points, and matrices. All operations return a new `Point` unless the method modifies in place (like `transform()`).
+
+| Expression | Result |
+|---|---|
+| `p + q` | Coordinate-wise addition. `q` may be a point or scalar. |
+| `p - q` | Coordinate-wise subtraction. |
+| `p * scalar` | Scale both coordinates. |
+| `p * matrix` | Apply affine transformation; returns new `Point`. |
+| `p * q` (len 2) | Dot product; returns a scalar. |
+| `p / scalar` | Divide both coordinates. |
+| `p / matrix` | Apply inverse transformation. |
+| `abs(p)` | Euclidean norm (distance from origin). |
+| `-p` | Negation: `Point(-x, -y)`. |
+
+```python
+import pymupdf
+
+p = pymupdf.Point(30, 40)
+q = pymupdf.Point(10, 5)
+
+print(p + q)          # Point(40.0, 45.0)
+print(p - q)          # Point(20.0, 35.0)
+print(p * 2)          # Point(60.0, 80.0)
+print(abs(p))         # 50.0
+print(p.unit)         # Point(0.6, 0.8)
+```
+
+## Usage in drawing and text insertion
+
+Points appear frequently as positional arguments in PyMuPDF's drawing and text APIs.
+
+```python
+import pymupdf
+
+doc = pymupdf.open()
+page = doc.new_page()
+
+# Draw a line between two points
+p1 = pymupdf.Point(72, 72)
+p2 = pymupdf.Point(288, 216)
+page.draw_line(p1, p2, color=(1, 0, 0), width=2)
+
+# Insert text at a specific position
+insert_pt = pymupdf.Point(72, 100)
+page.insert_text(insert_pt, "Hello, world!", fontsize=12)
+
+# Use a point as part of a Rect constructor
+margin = pymupdf.Point(36, 36)
+content_rect = pymupdf.Rect(margin, pymupdf.Point(page.rect.x1 - 36, page.rect.y1 - 36))
+
+doc.save("output.pdf")
+```
+
+<Tip>
+To find the distance between a point and the nearest side of a rectangle — for example, to check whether a search result falls within a margin — use `point.distance_to(rect)`. A result of `0.0` means the point lies inside the rectangle.
+</Tip>

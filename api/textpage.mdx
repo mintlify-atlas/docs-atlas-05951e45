@@ -1,0 +1,378 @@
+---
+title: "TextPage class — PyMuPDF API reference"
+description: "Full API reference for PyMuPDF's TextPage class: the low-level text structure returned by get_textpage(), with methods to extract text in multiple formats."
+---
+
+A `TextPage` is the internal representation of a page's text and image content after it has been parsed by MuPDF's text device. It organizes content into a hierarchy of blocks, lines, spans, and characters, and provides extraction methods for a wide range of output formats. You do not instantiate `TextPage` directly — it is returned by `page.get_textpage()` or `page.get_textpage_ocr()`.
+
+The primary motivation for working with `TextPage` directly (rather than calling `page.get_text()` repeatedly) is performance: creating a `TextPage` once and reusing it for multiple extractions or searches can reduce execution time by 50–95%.
+
+```python
+import pymupdf
+
+doc = pymupdf.open("report.pdf")
+page = doc[0]
+
+# Create a TextPage once, reuse for all extractions
+tp = page.get_textpage()
+
+text  = page.get_text(textpage=tp)
+words = page.get_text("words", textpage=tp)
+hits  = page.search_for("invoice", textpage=tp)
+```
+
+## Obtaining a TextPage
+
+<Columns cols={2}>
+  <Card title="page.get_textpage()" icon="file-text">
+    Creates a `TextPage` from the page's content. Accepts `clip` and `flags` parameters to control what is captured.
+  </Card>
+  <Card title="page.get_textpage_ocr()" icon="scan">
+    Creates a `TextPage` using Tesseract OCR. Requires Tesseract to be installed. Accepts `language`, `dpi`, and `full` parameters.
+  </Card>
+</Columns>
+
+---
+
+## Attributes
+
+<ResponseField name="rect" type="Rect">
+  The rectangle associated with this `TextPage`. This is either the full page rectangle or the `clip` argument passed when the `TextPage` was created. All search and extraction results are restricted to this rectangle (except for HTML, XHTML, and XML which always cover the full page).
+</ResponseField>
+
+---
+
+## Extraction methods
+
+All extraction methods operate on the content captured when the `TextPage` was created.
+
+### `extractText(sort)` → `str`
+
+Also available as `extractTEXT()`. Returns the page's complete text as a UTF-8 string in the order the content was defined in the document.
+
+<ParamField path="sort" type="bool" default="False">
+  Sort the output by vertical then horizontal coordinates to approximate natural reading order.
+</ParamField>
+
+<ResponseField name="returns" type="str">
+  Plain text of the entire page (or clip region).
+</ResponseField>
+
+```python
+tp = page.get_textpage()
+print(tp.extractText())
+# Equivalent via Page:
+print(page.get_text("text", textpage=tp))
+```
+
+### `extractBLOCKS()` → `list`
+
+Returns text content grouped into blocks, with bounding box coordinates. Also includes image and vector block metadata when the corresponding extraction flags were set.
+
+<ResponseField name="returns" type="list of tuples">
+  Each item is a 7-tuple `(x0, y0, x1, y1, text, block_no, block_type)` where:
+  - `x0, y0, x1, y1` — bounding box of the block
+  - `text` — concatenated text lines separated by `\n`, or image/vector metadata string
+  - `block_no` — sequential block number
+  - `block_type` — `0` for text, `1` for image, `3` for vector graphics
+</ResponseField>
+
+```python
+for x0, y0, x1, y1, text, block_no, block_type in tp.extractBLOCKS():
+    if block_type == 0:
+        print(f"Block {block_no}: {text[:60]}")
+```
+
+### `extractWORDS(delimiters)` → `list`
+
+Returns all words on the page with their bounding boxes. A fast, high-throughput method for locating specific words or building custom reading-order algorithms.
+
+<ParamField path="delimiters" type="str">
+  Additional characters to treat as word separators (beyond whitespace). For example `delimiters="@."` splits email addresses into parts.
+</ParamField>
+
+<ResponseField name="returns" type="list of tuples">
+  Each item is an 8-tuple `(x0, y0, x1, y1, word, block_no, line_no, word_no)`.
+</ResponseField>
+
+```python
+for x0, y0, x1, y1, word, block_no, line_no, word_no in tp.extractWORDS():
+    print(word)
+
+# Split emails into parts
+for item in tp.extractWORDS(delimiters="@."):
+    print(item[4])
+```
+
+### `extractHTML()` → `str`
+
+Returns the page content as an HTML string with complete formatting, positioning, and font information. Images are embedded as base64-encoded strings.
+
+<ResponseField name="returns" type="str">
+  Full-page HTML. Always covers the entire page (ignores the `TextPage.rect` clip).
+</ResponseField>
+
+```python
+html = tp.extractHTML()
+with open("page.html", "w") as f:
+    f.write(html)
+```
+
+### `extractXHTML()` → `str`
+
+Returns a simplified XHTML string. Text detail is comparable to `extractText()` but images are included as base64-encoded `<img>` tags. Does not attempt to reproduce the visual layout.
+
+<ResponseField name="returns" type="str">
+  XHTML string covering the full page.
+</ResponseField>
+
+### `extractXML()` → `str`
+
+Returns per-character XML with complete formatting detail: font name, size, color, position, and bounding box for every character. Does not include images.
+
+<ResponseField name="returns" type="str">
+  XML string covering the full page.
+</ResponseField>
+
+```python
+import xml.etree.ElementTree as ET
+root = ET.fromstring(tp.extractXML())
+```
+
+### `extractDICT(sort)` → `dict`
+
+Returns a structured Python dictionary with the full block → line → span → text hierarchy. This is one of the most information-rich extraction formats and is well-suited for programmatic text processing.
+
+<ParamField path="sort" type="bool" default="False">
+  Sort output by vertical then horizontal coordinates.
+</ParamField>
+
+<ResponseField name="returns" type="dict">
+  A dictionary with the following top-level structure:
+
+  <Expandable title="Page dictionary keys">
+    <ResponseField name="width" type="float">
+      Width of the clip rectangle.
+    </ResponseField>
+    <ResponseField name="height" type="float">
+      Height of the clip rectangle.
+    </ResponseField>
+    <ResponseField name="blocks" type="list">
+      List of block dictionaries (text or image blocks).
+    </ResponseField>
+  </Expandable>
+
+  Each **text block** contains:
+
+  <Expandable title="Text block keys">
+    <ResponseField name="type" type="int">
+      `0` for text blocks.
+    </ResponseField>
+    <ResponseField name="bbox" type="tuple">
+      Bounding box as `(x0, y0, x1, y1)`.
+    </ResponseField>
+    <ResponseField name="number" type="int">
+      Block sequence number.
+    </ResponseField>
+    <ResponseField name="lines" type="list">
+      List of line dictionaries.
+    </ResponseField>
+  </Expandable>
+
+  Each **line** contains:
+
+  <Expandable title="Line keys">
+    <ResponseField name="bbox" type="tuple">
+      Line bounding box.
+    </ResponseField>
+    <ResponseField name="wmode" type="int">
+      Writing mode: `0` = horizontal, `1` = vertical.
+    </ResponseField>
+    <ResponseField name="dir" type="tuple">
+      Unit vector `(cosine, -sine)` of the text angle relative to the x-axis.
+    </ResponseField>
+    <ResponseField name="spans" type="list">
+      List of span dictionaries.
+    </ResponseField>
+  </Expandable>
+
+  Each **span** contains:
+
+  <Expandable title="Span keys">
+    <ResponseField name="bbox" type="tuple">
+      Span bounding box.
+    </ResponseField>
+    <ResponseField name="origin" type="tuple">
+      Baseline origin of the first character.
+    </ResponseField>
+    <ResponseField name="font" type="str">
+      Font name.
+    </ResponseField>
+    <ResponseField name="size" type="float">
+      Font size.
+    </ResponseField>
+    <ResponseField name="flags" type="int">
+      Font property bits: bit 1 = italic, bit 2 = serifed, bit 3 = monospaced, bit 4 = bold.
+    </ResponseField>
+    <ResponseField name="color" type="int">
+      Text color as sRGB integer (e.g. `0xFF0000` for red).
+    </ResponseField>
+    <ResponseField name="text" type="str">
+      The span's text content (only in `extractDICT`; use `chars` in `extractRAWDICT`).
+    </ResponseField>
+    <ResponseField name="ascender" type="float">
+      Font ascender relative to font size 1.
+    </ResponseField>
+    <ResponseField name="descender" type="float">
+      Font descender relative to font size 1 (negative value).
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+```python
+data = tp.extractDICT()
+for block in data["blocks"]:
+    if block["type"] != 0:
+        continue
+    for line in block["lines"]:
+        for span in line["spans"]:
+            if span["flags"] & pymupdf.TEXT_FONT_BOLD:
+                print("Bold:", span["text"])
+```
+
+### `extractJSON(sort)` → `str`
+
+Returns the same content as `extractDICT()` serialized as a JSON string. Binary image data is base64-encoded. Use this primarily for writing to files or sending over a network.
+
+<ParamField path="sort" type="bool" default="False">
+  Sort output by vertical then horizontal coordinates.
+</ParamField>
+
+<ResponseField name="returns" type="str">
+  JSON-encoded string.
+</ResponseField>
+
+```python
+import json
+json_str = tp.extractJSON()
+data = json.loads(json_str)
+```
+
+### `extractRAWDICT(sort)` → `dict`
+
+Returns a superset of `extractDICT()` that adds per-character detail. Instead of a `"text"` key in each span, there is a `"chars"` list where each character is represented as a dictionary with its own `origin`, `bbox`, `c` (unicode character), and `synthetic` keys.
+
+<ParamField path="sort" type="bool" default="False">
+  Sort output by vertical then horizontal coordinates.
+</ParamField>
+
+<ResponseField name="returns" type="dict">
+  Same structure as `extractDICT()` but span dictionaries contain a `"chars"` list instead of `"text"`.
+
+  <Expandable title="Character dictionary keys">
+    <ResponseField name="origin" type="tuple">
+      Left baseline point of the character `(x, y)`.
+    </ResponseField>
+    <ResponseField name="bbox" type="tuple">
+      Character bounding box `(x0, y0, x1, y1)`.
+    </ResponseField>
+    <ResponseField name="c" type="str">
+      The unicode character.
+    </ResponseField>
+    <ResponseField name="synthetic" type="bool">
+      Whether the character was synthesized (e.g. during OCR).
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+```python
+raw = tp.extractRAWDICT()
+for block in raw["blocks"]:
+    if block["type"] != 0:
+        continue
+    for line in block["lines"]:
+        for span in line["spans"]:
+            for char in span["chars"]:
+                print(char["c"], char["bbox"])
+```
+
+### `extractRAWJSON(sort)` → `str`
+
+Returns the same content as `extractRAWDICT()` as a JSON string. Binary image data is base64-encoded.
+
+<ParamField path="sort" type="bool" default="False">
+  Sort output by vertical then horizontal coordinates.
+</ParamField>
+
+<ResponseField name="returns" type="str">
+  JSON-encoded string.
+</ResponseField>
+
+---
+
+## Search
+
+### `search(needle, quads)` → `list`
+
+Searches for a text string within the `TextPage` and returns the bounding areas of all matches. This is the underlying method called by `page.search_for()`.
+
+<ParamField path="needle" type="str" required>
+  The text to search for. Case-insensitive for ASCII letters. Spaces are supported for multi-word searches. Hyphenated line-break words are detected automatically.
+</ParamField>
+
+<ParamField path="quads" type="bool" default="False">
+  Return `Quad` objects instead of `Rect` objects. Use quads for non-horizontal text and for accurate annotation placement.
+</ParamField>
+
+<ResponseField name="returns" type="list of Rect or Quad">
+  One item per match occurrence. If a match spans multiple lines, multiple items are returned for that match. Overlapping rectangles on the same line are merged automatically.
+</ResponseField>
+
+```python
+tp = page.get_textpage()
+
+# Search with quads for annotation use
+matches = tp.search("total", quads=True)
+for quad in matches:
+    page.add_highlight_annot(quad)
+
+# Search via Page wrapper (equivalent)
+rects = page.search_for("total", textpage=tp)
+```
+
+---
+
+## Usage patterns
+
+### Reusing a TextPage for multiple operations
+
+```python
+doc = pymupdf.open("large_report.pdf")
+for page in doc:
+    tp = page.get_textpage()
+
+    # All three operations share one TextPage creation cost
+    plain_text = page.get_text(textpage=tp)
+    word_list  = page.get_text("words", textpage=tp)
+    hits       = page.search_for("section", textpage=tp)
+```
+
+### Combining with OCR
+
+```python
+# For scanned documents where standard extraction returns nothing
+tp = page.get_textpage_ocr(language="eng", dpi=300, full=True)
+text = page.get_text(textpage=tp)
+```
+
+### Extracting text from a specific region
+
+```python
+clip = pymupdf.Rect(50, 100, 400, 300)
+tp = page.get_textpage(clip=clip)
+text = tp.extractText()     # only text within the clip
+```
+
+<Note>
+  The extraction flag `TEXT_PRESERVE_IMAGES` must be set when creating the `TextPage` for image blocks to appear in `extractBLOCKS()` and `extractDICT()`. The flag `TEXT_COLLECT_VECTORS` enables vector block entries.
+</Note>

@@ -1,0 +1,99 @@
+---
+title: "Using PyMuPDF in LLM and RAG applications"
+description: "Overview of how PyMuPDF integrates with LLM frameworks including LangChain and LlamaIndex for document-based retrieval-augmented generation pipelines."
+keywords: ["PyMuPDF", "LLM", "RAG", "LangChain", "LlamaIndex", "PDF", "retrieval-augmented generation"]
+---
+
+PyMuPDF is one of the fastest and most accurate PDF processing libraries available, making it a strong foundation for document-based AI workflows. Whether you are building a simple chatbot that answers questions about a PDF or a production retrieval-augmented generation (RAG) pipeline ingesting thousands of documents, PyMuPDF provides the extraction accuracy and format flexibility that LLM applications require.
+
+## Why PyMuPDF for LLM and RAG
+
+Feeding poor-quality text into an LLM leads to poor-quality answers. PyMuPDF extracts text with high fidelity, preserving reading order, detecting tables, and handling multi-column layouts that simpler extractors flatten into noise. It supports a wide range of document formats and is consistently benchmarked as one of the fastest Python PDF libraries.
+
+Key advantages for AI use cases:
+
+- **Speed** — processes hundreds of pages per second, making batch ingestion practical at scale
+- **Accuracy** — preserves reading order across multi-column and complex layouts
+- **Format support** — outputs Markdown, JSON, and plain text, matching what embedding and chunking pipelines expect
+- **Table detection** — identifies tabular data and renders it as structured Markdown or JSON
+- **Image and vector handling** — extracts or embeds images so multimodal pipelines have full page context
+- **OCR support** — automatically applies OCR to scanned or image-based pages via the pymupdf4llm hybrid OCR strategy
+- **Office format support** — extend to DOC, DOCX, XLS, XLSX, PPT, PPTX with PyMuPDF Pro
+
+## Integration paths
+
+There are several ways to connect PyMuPDF to an LLM or RAG framework. Choose based on your output format needs and which framework you are using.
+
+<Columns cols={2}>
+  <Card title="pymupdf4llm" icon="file-text" href="/llm/pymupdf4llm">
+    Convert PDFs to Markdown, JSON, or plain text optimized for LLM ingestion. Supports per-page chunks, image embedding, table detection, and LlamaIndex documents.
+  </Card>
+  <Card title="RAG pipelines" icon="git-merge" href="/llm/rag-pipelines">
+    Build full retrieval-augmented generation pipelines using PyMuPDF with LangChain's PyMuPDFLoader or LlamaIndex's PyMuPDFReader.
+  </Card>
+</Columns>
+
+## Quick examples
+
+The snippets below show the fastest path to usable document text for each integration approach.
+
+### Direct: pymupdf4llm to Markdown
+
+Install the package and convert a PDF to a Markdown string in two lines. The result is suitable for any text splitter or embedding pipeline.
+
+```python
+import pymupdf4llm
+
+md_text = pymupdf4llm.to_markdown("input.pdf")
+```
+
+### LangChain: PyMuPDFLoader
+
+LangChain ships a dedicated loader that wraps PyMuPDF. Each page becomes a `Document` object with page content and metadata.
+
+```python
+from langchain_community.document_loaders import PyMuPDFLoader
+
+loader = PyMuPDFLoader("example.pdf")
+data = loader.load()
+```
+
+### LlamaIndex: PyMuPDFReader
+
+LlamaIndex provides its own reader that returns `Document` objects compatible with LlamaIndex index builders.
+
+```python
+from llama_index.readers.file import PyMuPDFReader
+
+loader = PyMuPDFReader()
+documents = loader.load(file_path="example.pdf")
+```
+
+### LlamaIndex: via pymupdf4llm
+
+For Markdown-first LlamaIndex workflows, use `LlamaMarkdownReader` from pymupdf4llm. It converts each PDF page to Markdown and wraps it as a LlamaIndex `Document`.
+
+```python
+import pymupdf4llm
+
+llama_reader = pymupdf4llm.LlamaMarkdownReader()
+llama_docs = llama_reader.load_data("input.pdf")
+```
+
+## Chunking and Markdown output
+
+Once you have Markdown output, you can use Level 3 chunking strategies that exploit document structure — headings, tables, and paragraphs — rather than splitting on raw character counts. This produces semantically coherent chunks that improve retrieval accuracy.
+
+```python
+import pymupdf4llm
+from langchain.text_splitter import MarkdownTextSplitter
+
+md_text = pymupdf4llm.to_markdown("input.pdf")
+
+splitter = MarkdownTextSplitter(chunk_size=40, chunk_overlap=0)
+splitter.create_documents([md_text])
+```
+
+<Tip>
+  Use `page_chunks=True` in `pymupdf4llm.to_markdown()` to get one dictionary per page, each containing the text, metadata, table list, and image list. This makes it easy to track provenance when building citation-aware RAG systems.
+</Tip>

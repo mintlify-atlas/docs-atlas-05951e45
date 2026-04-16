@@ -1,0 +1,212 @@
+---
+title: "Text extraction modes in PyMuPDF"
+description: "Explore PyMuPDF's text extraction options: plain text, blocks, words, HTML, dict, JSON, rawdict, XHTML, and XML — and when to use each format."
+---
+
+PyMuPDF provides one of the most flexible text extraction APIs available in any Python PDF library. A single method, `page.get_text()`, supports nine output formats ranging from plain UTF-8 strings to fully structured dictionaries with character-level detail, giving you precise control over the trade-off between simplicity and richness.
+
+## The main entry point
+
+`page.get_text(output, ...)` is the primary method for extracting text from a page. The `output` parameter is a string that selects the format. When omitted, it defaults to `"text"`.
+
+```python
+import pymupdf
+
+doc  = pymupdf.open("document.pdf")
+page = doc[0]
+
+# Plain text (default)
+text = page.get_text()
+
+# Structured dictionary
+data = page.get_text("dict")
+```
+
+## Output formats
+
+<AccordionGroup>
+  <Accordion title='"text" — plain UTF-8 string'>
+    Returns all text on the page as a single UTF-8 string. Lines are separated by `\n`. This is the fastest option and suitable for bulk text processing, search, and indexing.
+
+    ```python
+    text = page.get_text("text")
+    print(text)
+    # "Annual Report 2024\nExecutive Summary\n..."
+    ```
+  </Accordion>
+
+  <Accordion title='"blocks" — text grouped by block'>
+    Returns a list of tuples, one per block, each containing the block's bounding box and its text. Useful when you need to associate text with its position on the page without full span-level detail.
+
+    ```python
+    blocks = page.get_text("blocks")
+    for x0, y0, x1, y1, text, block_no, block_type in blocks:
+        if block_type == 0:  # text block (1 = image, 3 = vector)
+            print(f"Block at ({x0:.1f}, {y0:.1f}): {text[:40]!r}")
+    ```
+  </Accordion>
+
+  <Accordion title='"words" — individual words with coordinates'>
+    Returns a list of tuples, one per word. Each tuple includes the word's bounding box coordinates and its block, line, and word sequence numbers. Ideal for word-level search, highlighting, and OCR comparisons.
+
+    ```python
+    words = page.get_text("words")
+    for x0, y0, x1, y1, word, block_no, line_no, word_no in words:
+        print(f"{word!r:20} at ({x0:.1f}, {y0:.1f})")
+    ```
+  </Accordion>
+
+  <Accordion title='"dict" / "json" — rich structured output'>
+    Returns a Python dictionary (or its JSON serialization) with a hierarchy of blocks → lines → spans. Each span contains the text string along with the font name, size, color, and bounding box. This is the most commonly used structured format.
+
+    ```python
+    data = page.get_text("dict")
+
+    for block in data["blocks"]:
+        if block["type"] == 0:  # text block
+            for line in block["lines"]:
+                for span in line["spans"]:
+                    print(span["text"], span["font"], span["size"])
+    ```
+
+    The `"json"` variant is the same data serialized with `json.dumps()`:
+
+    ```python
+    import json
+    json_str = page.get_text("json")
+    data = json.loads(json_str)
+    ```
+  </Accordion>
+
+  <Accordion title='"rawdict" / "rawjson" — character-level detail'>
+    Like `"dict"`, but spans contain a list of individual character dictionaries instead of a concatenated text string. Each character entry includes its Unicode codepoint, bounding box, and baseline origin. Useful when you need precise per-character positioning.
+
+    ```python
+    data = page.get_text("rawdict")
+
+    for block in data["blocks"]:
+        if block["type"] == 0:
+            for line in block["lines"]:
+                for span in line["spans"]:
+                    for char in span["chars"]:
+                        print(char["c"], char["bbox"])
+    ```
+  </Accordion>
+
+  <Accordion title='"html" — full HTML with images'>
+    Returns the page content as an HTML string, including formatting, positioning, and images encoded as base64 data URIs. Suitable for display in a browser or for further processing with an HTML library.
+
+    ```python
+    html = page.get_text("html")
+    with open("page.html", "w", encoding="utf-8") as f:
+        f.write(html)
+    ```
+  </Accordion>
+
+  <Accordion title='"xhtml" — simplified HTML'>
+    Similar to `"html"` but with less formatting detail. Text information is comparable to `"text"` but images are included as base64 data URIs. Does not attempt to re-create the original visual appearance.
+
+    ```python
+    xhtml = page.get_text("xhtml")
+    ```
+  </Accordion>
+
+  <Accordion title='"xml" — per-character XML'>
+    Returns the most detailed possible output: every character on the page as an XML element, with font, size, position, color, and more. Contains no image data. Requires an XML library to parse in Python.
+
+    ```python
+    xml = page.get_text("xml")
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Choosing the right format
+
+| Goal | Recommended format |
+|---|---|
+| Full-text search or indexing | `"text"` |
+| Positional layout analysis | `"blocks"` |
+| Word-level bounding boxes | `"words"` |
+| Font, size, and color metadata | `"dict"` |
+| Character-level positioning | `"rawdict"` |
+| Browser rendering or HTML pipeline | `"html"` |
+| Minimal HTML with images | `"xhtml"` |
+| Character-level XML processing | `"xml"` |
+
+## Extraction flags
+
+The `flags` parameter controls what gets included in the output. Flags are integer bit fields combined with the `|` operator.
+
+```python
+import pymupdf
+
+doc  = pymupdf.open("document.pdf")
+page = doc[0]
+
+# Include image blocks in the output
+text = page.get_text(
+    "blocks",
+    flags=pymupdf.TEXT_PRESERVE_IMAGES | pymupdf.TEXT_PRESERVE_WHITESPACE,
+)
+```
+
+Common flags include:
+
+| Flag | Effect |
+|---|---|
+| `TEXT_PRESERVE_WHITESPACE` | Keep whitespace characters as-is |
+| `TEXT_PRESERVE_IMAGES` | Include image blocks in output |
+| `TEXT_PRESERVE_LIGATURES` | Keep ligature characters intact |
+| `TEXT_COLLECT_VECTORS` | Include vector graphic blocks |
+| `TEXT_DEHYPHENATE` | Join hyphenated words across line breaks |
+
+## Clipping to a rectangle
+
+Use the `clip` parameter to restrict extraction to a specific area of the page. This is useful for multi-column layouts or for extracting text from a known region.
+
+```python
+import pymupdf
+
+doc  = pymupdf.open("document.pdf")
+page = doc[0]
+
+# Extract only from the top-left quarter
+clip = pymupdf.Rect(0, 0, page.rect.width / 2, page.rect.height / 2)
+text = page.get_text(clip=clip)
+```
+
+## Sorting output
+
+Pass `sort=True` to sort text blocks by their vertical position first, then horizontal position. This often produces a more natural reading order, especially for complex layouts.
+
+```python
+text = page.get_text("text", sort=True)
+data = page.get_text("dict", sort=True)
+```
+
+## The TextPage object
+
+Internally, `page.get_text()` creates a `TextPage` object and calls the appropriate extraction method on it. You can create a `TextPage` explicitly to reuse it across multiple calls, which is more efficient when extracting in several formats from the same page.
+
+```python
+import pymupdf
+
+doc      = pymupdf.open("document.pdf")
+page     = doc[0]
+textpage = page.get_textpage()  # create once
+
+text  = page.get_text("text",  textpage=textpage)
+words = page.get_text("words", textpage=textpage)
+data  = page.get_text("dict",  textpage=textpage)
+```
+
+<Tip>
+For pages with image-based text (scanned documents), use OCR to create the TextPage:
+
+```python
+tp   = page.get_textpage_ocr(language="eng")
+text = page.get_text(textpage=tp)
+```
+
+This requires Tesseract to be installed and the `TESSDATA_PREFIX` environment variable to be set.
+</Tip>

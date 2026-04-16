@@ -1,0 +1,630 @@
+---
+title: "Page class — PyMuPDF API reference"
+description: "Full API reference for PyMuPDF's Page class: text extraction, rendering, annotations, links, search, drawing, and image insertion methods and properties."
+---
+
+The `Page` class represents a single page within a document. You never construct a `Page` directly — instead, call `doc.load_page(n)` or use index notation `doc[n]`. Pages have a parent-child relationship with their owning `Document`: if the document is closed, all page objects become orphaned and raise exceptions when used.
+
+```python
+import pymupdf
+
+doc = pymupdf.open("report.pdf")
+page = doc[0]                     # or doc.load_page(0)
+
+# Render at 150 DPI
+pix = page.get_pixmap(dpi=150)
+pix.save("page0.png")
+```
+
+<Note>
+  Coordinate input to all modification methods (insert, draw, annotate) must always use **unrotated** page coordinates, regardless of the page's `rotation` property.
+</Note>
+
+---
+
+## Properties
+
+<ResponseField name="number" type="int">
+  The zero-based page number within the document.
+</ResponseField>
+
+<ResponseField name="parent" type="Document">
+  The owning `Document` object.
+</ResponseField>
+
+<ResponseField name="rect" type="Rect">
+  The page's bounding rectangle (reflects rotation). Equal to `page.bound()`.
+</ResponseField>
+
+<ResponseField name="mediabox" type="Rect">
+  The page's `/MediaBox` (the full physical page size). For most documents this equals `rect` and `cropbox`.
+</ResponseField>
+
+<ResponseField name="cropbox" type="Rect">
+  The page's `/CropBox` — the visible area — always in unrotated coordinates. Equals `mediabox` if no cropbox is defined.
+</ResponseField>
+
+<ResponseField name="rotation" type="int">
+  PDF only. The page rotation in degrees (always one of 0, 90, 180, 270).
+</ResponseField>
+
+<ResponseField name="xref" type="int">
+  PDF only. The page's cross-reference number in the PDF file. Zero for non-PDF documents.
+</ResponseField>
+
+<ResponseField name="first_annot" type="Annot or None">
+  The first annotation on the page, or `None`.
+</ResponseField>
+
+<ResponseField name="first_link" type="Link or None">
+  The first link on the page, or `None`.
+</ResponseField>
+
+---
+
+## Text extraction
+
+### `get_text(option, clip, flags, textpage, sort, delimiters)` → `str`, `list`, or `dict`
+
+Extracts page content in a variety of formats. This is a wrapper over the corresponding `TextPage` extraction methods.
+
+<ParamField path="option" type="string" default='"text"'>
+  Output format. One of:
+  - `"text"` — plain text
+  - `"blocks"` — text grouped by block with bounding boxes
+  - `"words"` — individual words with bounding boxes
+  - `"html"` — full HTML with formatting and images
+  - `"xhtml"` — simplified XHTML with images
+  - `"xml"` — per-character XML with font details
+  - `"dict"` — structured Python dictionary
+  - `"json"` — JSON-encoded dictionary
+  - `"rawdict"` — dictionary with per-character detail
+  - `"rawjson"` — JSON-encoded rawdict
+</ParamField>
+
+<ParamField path="clip" type="rect_like">
+  Restrict extraction to this rectangle. Characters fully outside `clip` are omitted. Has no effect on `"html"`, `"xhtml"`, and `"xml"`.
+</ParamField>
+
+<ParamField path="flags" type="int">
+  Bit flags controlling content inclusion (images, ligatures, white space). See `TEXT_PRESERVE_*` constants.
+</ParamField>
+
+<ParamField path="textpage" type="TextPage">
+  Reuse a previously created `TextPage` to avoid re-computation. When provided, `flags` and `clip` are ignored.
+</ParamField>
+
+<ParamField path="sort" type="bool" default="False">
+  Sort output by vertical then horizontal coordinates to approximate natural reading order.
+</ParamField>
+
+<ParamField path="delimiters" type="str">
+  Additional word separator characters for `"words"` output. By default, only whitespace splits words.
+</ParamField>
+
+<ResponseField name="returns" type="str, list, or dict">
+  Page content in the requested format.
+</ResponseField>
+
+```python
+# Plain text
+text = page.get_text()
+
+# Structured dict with font details
+data = page.get_text("dict")
+for block in data["blocks"]:
+    if block["type"] == 0:  # text block
+        for line in block["lines"]:
+            for span in line["spans"]:
+                print(span["text"], span["font"], span["size"])
+
+# Words with bounding boxes
+words = page.get_text("words")
+for x0, y0, x1, y1, word, block_no, line_no, word_no in words:
+    print(word)
+```
+
+### `get_textpage(clip, flags)` → `TextPage`
+
+Creates and returns a `TextPage` for this page. The `TextPage` can then be passed to `get_text()` and `search_for()` for significant performance gains when extracting in multiple formats.
+
+<ParamField path="clip" type="rect_like">
+  Restrict the text page to this rectangle.
+</ParamField>
+
+<ParamField path="flags" type="int" default="3">
+  Bit flags controlling what content is captured.
+</ParamField>
+
+<ResponseField name="returns" type="TextPage">
+  A reusable `TextPage` object.
+</ResponseField>
+
+```python
+tp = page.get_textpage()
+text = page.get_text(textpage=tp)
+words = page.get_text("words", textpage=tp)
+hits = page.search_for("invoice", textpage=tp)
+```
+
+### `get_textpage_ocr(flags, language, dpi, full, tessdata)` → `TextPage`
+
+Uses Tesseract OCR to create a `TextPage` from raster or vector content. Requires Tesseract to be installed.
+
+<ParamField path="flags" type="int" default="3">
+  Bit flags controlling captured content.
+</ParamField>
+
+<ParamField path="language" type="str" default='"eng"'>
+  Tesseract language code(s). Use `"+"` to join multiple languages, e.g. `"eng+spa"`.
+</ParamField>
+
+<ParamField path="dpi" type="int" default="72">
+  Resolution for the OCR rasterization. Higher values improve accuracy but slow execution.
+</ParamField>
+
+<ParamField path="full" type="bool" default="False">
+  If `True`, OCR the entire page. If `False`, only rasterized areas without legible text are OCR-ed.
+</ParamField>
+
+<ParamField path="tessdata" type="str">
+  Path to the Tesseract `tessdata` folder. Defaults to the `TESSDATA_PREFIX` environment variable.
+</ParamField>
+
+<ResponseField name="returns" type="TextPage">
+  A `TextPage` containing OCR-detected text.
+</ResponseField>
+
+```python
+tp = page.get_textpage_ocr(language="eng", dpi=300, full=True)
+text = page.get_text(textpage=tp)
+```
+
+---
+
+## Rendering
+
+### `get_pixmap(matrix, dpi, colorspace, clip, alpha, annots)` → `Pixmap`
+
+Renders the page to a raster image. This is the most common method for creating images from document pages.
+
+All parameters are keyword-only.
+
+<ParamField path="matrix" type="matrix_like" default="Identity">
+  Transformation matrix. Use `pymupdf.Matrix(zoom, zoom)` to control resolution.
+</ParamField>
+
+<ParamField path="dpi" type="int">
+  Target resolution in dots per inch. When set, `matrix` is ignored. For example, `dpi=150` renders at 150 DPI.
+</ParamField>
+
+<ParamField path="colorspace" type="str or Colorspace" default="csRGB">
+  Output colorspace. One of `"GRAY"`, `"RGB"`, `"CMYK"`, or a `Colorspace` object.
+</ParamField>
+
+<ParamField path="clip" type="rect_like">
+  Restrict rendering to the intersection of this rectangle and the page.
+</ParamField>
+
+<ParamField path="alpha" type="bool" default="False">
+  Add an alpha channel. Transparent page areas will be truly transparent (not white). Uses 25% more memory.
+</ParamField>
+
+<ParamField path="annots" type="bool" default="True">
+  Whether to include annotations in the rendered output.
+</ParamField>
+
+<ResponseField name="returns" type="Pixmap">
+  Rasterized image of the page.
+</ResponseField>
+
+```python
+# 150 DPI RGB image
+pix = page.get_pixmap(dpi=150)
+pix.save("page.png")
+
+# 2x zoom using matrix
+mat = pymupdf.Matrix(2, 2)
+pix = page.get_pixmap(matrix=mat)
+
+# Grayscale, no annotations
+pix = page.get_pixmap(colorspace=pymupdf.csGRAY, annots=False)
+```
+
+---
+
+## Search
+
+### `search_for(needle, clip, quads, flags, textpage)` → `list`
+
+Searches for a text string on the page and returns the bounding areas of all matches.
+
+<ParamField path="needle" type="str" required>
+  The text to search for. Case-insensitive for ASCII letters. Spaces are supported (multi-word search).
+</ParamField>
+
+<ParamField path="clip" type="rect_like">
+  Restrict the search to this rectangle.
+</ParamField>
+
+<ParamField path="quads" type="bool" default="False">
+  Return `Quad` objects instead of `Rect` objects — required for non-horizontal text.
+</ParamField>
+
+<ParamField path="flags" type="int">
+  Control flags for the underlying `TextPage`. Defaults include dehyphenation and whitespace/ligature preservation.
+</ParamField>
+
+<ParamField path="textpage" type="TextPage">
+  Reuse a previously created `TextPage`.
+</ParamField>
+
+<ResponseField name="returns" type="list of Rect or Quad">
+  One item per match. Multi-line matches produce multiple items. Hyphenated words (e.g. `"meth-\nod"`) are found and return two rectangles.
+</ResponseField>
+
+```python
+rects = page.search_for("invoice")
+for rect in rects:
+    print(f"Found at: {rect}")
+
+# Use result directly as highlight annotation input
+quads = page.search_for("total", quads=True)
+page.add_highlight_annot(quads)
+```
+
+---
+
+## Table detection
+
+### `find_tables(clip, strategy, ...)` → `TableFinder`
+
+Detects tables on the page using vector graphics or text heuristics.
+
+<ParamField path="clip" type="rect_like">
+  Limit detection to this area. Default is the full page rectangle.
+</ParamField>
+
+<ParamField path="strategy" type="str" default='"lines"'>
+  Detection strategy: `"lines"` (use all vector graphics), `"lines_strict"` (ignore borderless rectangles), or `"text"` (use text position heuristics).
+</ParamField>
+
+<ResponseField name="returns" type="TableFinder">
+  An object with a `tables` attribute (list of `Table` objects). Each `Table` has `bbox`, `cells`, `col_count`, `row_count`, `extract()`, `to_markdown()`, and `to_pandas()`.
+</ResponseField>
+
+```python
+tabs = page.find_tables()
+for table in tabs.tables:
+    print(table.extract())          # list of lists of strings
+    print(table.to_markdown())      # GitHub-flavored markdown
+```
+
+---
+
+## Images
+
+### `get_images(full)` → `list`
+
+PDF only. Returns a list of all images referenced by the page.
+
+<ParamField path="full" type="bool" default="False">
+  If `True`, include the referencer's xref as an additional tuple element.
+</ParamField>
+
+<ResponseField name="returns" type="list">
+  Each item is a tuple `(xref, smask, width, height, bpc, colorspace, alt_colorspace, name, filter[, referencer])`.
+</ResponseField>
+
+### `insert_image(rect, filename, stream, pixmap, xref, rotate, keep_proportion, oc, overlay)` → `int`
+
+PDF only. Inserts an image into the given rectangle on the page.
+
+<ParamField path="rect" type="rect_like" required>
+  Target area on the page. Must be finite and non-empty.
+</ParamField>
+
+<ParamField path="filename" type="str">
+  Path of an image file to insert.
+</ParamField>
+
+<ParamField path="stream" type="bytes, bytearray, or BytesIO">
+  Image data in memory.
+</ParamField>
+
+<ParamField path="pixmap" type="Pixmap">
+  A `Pixmap` object containing the image.
+</ParamField>
+
+<ParamField path="xref" type="int" default="0">
+  The xref of an image already embedded in the PDF. When provided, `filename`, `stream`, and `pixmap` are ignored. Reusing an xref is the most efficient way to insert the same image multiple times.
+</ParamField>
+
+<ParamField path="rotate" type="int" default="0">
+  Rotate the image by an integer multiple of 90 degrees. Positive values rotate anti-clockwise.
+</ParamField>
+
+<ParamField path="keep_proportion" type="bool" default="True">
+  Maintain the image's aspect ratio.
+</ParamField>
+
+<ResponseField name="returns" type="int">
+  The xref of the stored image. Pass this back as `xref` for subsequent insertions to avoid duplicating data.
+</ResponseField>
+
+```python
+rect = pymupdf.Rect(0, 0, 100, 100)
+img_xref = 0
+for page in doc:
+    img_xref = page.insert_image(rect, filename="logo.png", xref=img_xref)
+```
+
+---
+
+## Vector graphics
+
+### `get_drawings(extended)` → `list`
+
+Returns the vector graphics (line art) on the page as a list of path dictionaries.
+
+<ParamField path="extended" type="bool" default="False">
+  If `True`, also include clip and group paths with hierarchy information.
+</ParamField>
+
+<ResponseField name="returns" type="list of dict">
+  Each dictionary represents a path with keys: `type` (`"f"`, `"s"`, `"fs"`), `color`, `fill`, `width`, `rect`, `items`, `dashes`, `lineCap`, `lineJoin`, `stroke_opacity`, `fill_opacity`, `even_odd`, `closePath`, `seqno`, `layer`.
+</ResponseField>
+
+```python
+for path in page.get_drawings():
+    if path["type"] == "fs":   # filled and stroked
+        print("Rect:", path["rect"])
+```
+
+### `draw_rect(rect, color, fill, width, dashes, overlay, morph, stroke_opacity, fill_opacity, radius)` → `Point`
+
+PDF only. Draws a rectangle on the page.
+
+<ParamField path="rect" type="rect_like" required>
+  The rectangle to draw.
+</ParamField>
+
+<ParamField path="color" type="sequence" default="(0,)">
+  Stroke color as a sequence of floats in `[0, 1]`. Use `(0,)` for black, `(1, 0, 0)` for red.
+</ParamField>
+
+<ParamField path="fill" type="sequence">
+  Fill color in the same format as `color`. `None` means no fill.
+</ParamField>
+
+<ParamField path="width" type="float" default="1">
+  Stroke line width in points.
+</ParamField>
+
+<ParamField path="radius" type="float or None">
+  If set, draws a rounded rectangle with this corner radius.
+</ParamField>
+
+<ParamField path="overlay" type="bool" default="True">
+  Draw in foreground (`True`) or background (`False`).
+</ParamField>
+
+```python
+page.draw_rect(pymupdf.Rect(50, 50, 200, 150), color=(1, 0, 0), fill=(1, 1, 0), width=2)
+```
+
+---
+
+## Text insertion
+
+### `insert_text(point, text, fontsize, fontname, fontfile, color, fill, rotate, overlay, oc)` → `int`
+
+PDF only. Inserts text lines starting at the given point.
+
+<ParamField path="point" type="point_like" required>
+  The baseline start point for the first text line.
+</ParamField>
+
+<ParamField path="text" type="str or sequence" required>
+  The text to insert. Multi-line strings and sequences of strings are supported.
+</ParamField>
+
+<ParamField path="fontsize" type="float" default="11">
+  Font size in points.
+</ParamField>
+
+<ParamField path="fontname" type="str" default='"helv"'>
+  Font name. Built-in names: `"helv"`, `"cour"`, `"tiro"`, and CJK variants. Use `fontfile` for custom fonts.
+</ParamField>
+
+<ParamField path="color" type="sequence">
+  Text color. RGB example: `(1, 0, 0)` for red. Default is black.
+</ParamField>
+
+<ParamField path="rotate" type="int" default="0">
+  Rotation angle (must be a multiple of 90).
+</ParamField>
+
+<ResponseField name="returns" type="int">
+  Number of successfully inserted lines.
+</ResponseField>
+
+```python
+page.insert_text(pymupdf.Point(72, 72), "Hello, world!", fontsize=14, color=(0, 0, 1))
+```
+
+---
+
+## Links
+
+### `get_links()` → `list`
+
+Returns all links on the page as a list of dictionaries. Each dictionary has keys: `kind`, `from` (hotspot rect), `page`, `to`, `uri`, `file`, and `xref`.
+
+<ResponseField name="returns" type="list of dict">
+  One dictionary per link.
+</ResponseField>
+
+### `annots(types)` → `generator`
+
+Returns a generator over the page's annotations.
+
+<ParamField path="types" type="sequence of int">
+  Filter by annotation type constants (`pymupdf.PDF_ANNOT_*`). Default yields all annotations.
+</ParamField>
+
+<ResponseField name="returns" type="generator of Annot">
+  Yields `Annot` objects.
+</ResponseField>
+
+```python
+for annot in page.annots(types=[pymupdf.PDF_ANNOT_HIGHLIGHT]):
+    print(annot.rect)
+```
+
+---
+
+## Annotations
+
+### `add_highlight_annot(quads, start, stop, clip)` → `Annot`
+
+PDF only. Adds a yellow highlight annotation over the specified areas. Commonly used with `search_for()` results.
+
+<ParamField path="quads" type="rect_like, quad_like, list, or None">
+  Areas to highlight. Either a single rect/quad, or a list thereof. Set to `None` to use `start`/`stop` instead.
+</ParamField>
+
+<ParamField path="start" type="point_like">
+  Start point for range highlighting (used when `quads=None`).
+</ParamField>
+
+<ParamField path="stop" type="point_like">
+  End point for range highlighting (used when `quads=None`).
+</ParamField>
+
+<ParamField path="clip" type="rect_like">
+  Restrict to text lines intersecting this area.
+</ParamField>
+
+<ResponseField name="returns" type="Annot or None">
+  The created annotation, or `None` if `quads` was an empty list.
+</ResponseField>
+
+```python
+quads = page.search_for("total amount", quads=True)
+page.add_highlight_annot(quads)
+```
+
+### `add_text_annot(point, text, icon)` → `Annot`
+
+PDF only. Adds a sticky-note annotation with accompanying hidden text.
+
+<ParamField path="point" type="point_like" required>
+  Top-left point of the 20×20 icon rectangle.
+</ParamField>
+
+<ParamField path="text" type="str" required>
+  The commentary text shown on hover or double-click.
+</ParamField>
+
+<ParamField path="icon" type="str" default='"Note"'>
+  Icon style: `"Note"`, `"Comment"`, `"Help"`, `"Insert"`, `"Key"`, `"NewParagraph"`, `"Paragraph"`.
+</ParamField>
+
+<ResponseField name="returns" type="Annot">
+  The created annotation.
+</ResponseField>
+
+### `add_rect_annot(rect)` → `Annot`
+
+PDF only. Adds a rectangle annotation with a red stroke border.
+
+<ParamField path="rect" type="rect_like" required>
+  The rectangle area for the annotation.
+</ParamField>
+
+<ResponseField name="returns" type="Annot">
+  The created annotation (red stroke, no fill by default).
+</ResponseField>
+
+### `add_freetext_annot(rect, text, fontsize, fontname, text_color, fill_color, border_width, rotate, align, richtext, ...)` → `Annot`
+
+PDF only. Adds a free-text (text box) annotation inside the given rectangle.
+
+<ParamField path="rect" type="rect_like" required>
+  The rectangle to contain the text.
+</ParamField>
+
+<ParamField path="text" type="str" required>
+  The annotation text. If `richtext=True`, interpreted as HTML.
+</ParamField>
+
+<ParamField path="fontsize" type="float" default="11">
+  Font size. Ignored when `richtext=True`.
+</ParamField>
+
+<ParamField path="fontname" type="str" default='"helv"'>
+  Font name (`"Helv"`, `"Cour"`, `"TiRo"`, `"ZaDb"`, `"Symb"`). Ignored when `richtext=True`.
+</ParamField>
+
+<ParamField path="text_color" type="sequence or float" default="0">
+  Text color (default black). Ignored when `richtext=True`.
+</ParamField>
+
+<ParamField path="rotate" type="int" default="0">
+  Text orientation in degrees (multiples of 90).
+</ParamField>
+
+<ParamField path="richtext" type="bool" default="False">
+  Interpret `text` as HTML for rich formatting.
+</ParamField>
+
+<ResponseField name="returns" type="Annot">
+  The created annotation.
+</ResponseField>
+
+### `delete_annot(annot)` → `Annot`
+
+PDF only. Deletes the given annotation from the page.
+
+<ParamField path="annot" type="Annot" required>
+  The annotation object to delete.
+</ParamField>
+
+<ResponseField name="returns" type="Annot">
+  The annotation that followed the deleted one (or `None`).
+</ResponseField>
+
+---
+
+## Redactions
+
+### `apply_redactions(images, graphics, text)` → `bool`
+
+PDF only. Processes all redaction annotations on the page, permanently removing the content they cover.
+
+<Warning>
+  This operation is irreversible. Text removed here will not appear in any subsequent extraction or search.
+</Warning>
+
+<ParamField path="images" type="int" default="2">
+  How to handle overlapping images. `0` = ignore, `1` = remove, `2` = blank out overlapping pixels (default), `3` = remove only visible images.
+</ParamField>
+
+<ParamField path="graphics" type="int" default="1">
+  How to handle overlapping vector graphics. `0` = ignore, `1` = remove if covered (default), `2` = remove if fully contained.
+</ParamField>
+
+<ParamField path="text" type="int" default="0">
+  Whether to remove overlapping text. `0` = remove (default, compliant behavior), `1` = keep.
+</ParamField>
+
+<ResponseField name="returns" type="bool">
+  `True` if at least one redaction was processed.
+</ResponseField>
+
+```python
+page.add_redact_annot(pymupdf.Rect(100, 200, 400, 220), text="[REDACTED]")
+page.apply_redactions()
+doc.save("redacted.pdf", garbage=3)
+```

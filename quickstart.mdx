@@ -1,80 +1,224 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: "Get started with PyMuPDF"
+description: "Learn how to open documents, extract text, render pages as images, and work with PDFs in PyMuPDF in under 5 minutes with real Python examples."
 ---
 
-## Get started in three steps
+PyMuPDF makes it straightforward to work with PDF and other document formats in Python. This quickstart covers the core workflow: opening a document, reading its metadata, extracting text from pages, and rendering pages as images. All examples use the `pymupdf` API directly.
 
-Get your documentation site running locally and make your first customization.
+<Note>
+  Make sure you have PyMuPDF installed before starting. See the [installation guide](/installation) if you haven't set it up yet.
+</Note>
 
-### Step 1: Set up your local environment
+## Core workflow
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+<Steps>
+  <Step title="Import PyMuPDF and open a document">
+    Import the `pymupdf` module and open any supported file with `pymupdf.open()`. You can pass a file path as a string or a `pathlib.Path` object.
 
-### Step 2: Deploy your changes
+    ```python
+    import pymupdf
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    doc = pymupdf.open("example.pdf")  # open a PDF document
+    ```
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+    `pymupdf.open()` returns a `Document` object. You can also use `pymupdf.Document()` — both are equivalent.
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+    <Tip>
+      PyMuPDF supports PDF, XPS, EPUB, MOBI, CBZ, FB2, and more. The same `pymupdf.open()` call works for all supported formats.
+    </Tip>
+  </Step>
 
-### Step 3: Go live
+  <Step title="Read document metadata and page count">
+    The `Document` object exposes metadata and structural information about the file.
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+    ```python
+    import pymupdf
+
+    doc = pymupdf.open("example.pdf")
+
+    print(f"Page count: {doc.page_count}")
+    print(f"Metadata: {doc.metadata}")
+    ```
+
+    `doc.metadata` is a dictionary with keys such as `title`, `author`, `subject`, `keywords`, `creationDate`, and `modDate`. Keys may be `None` if not set in the document.
+
+    You can also retrieve the table of contents:
+
+    ```python
+    toc = doc.get_toc()  # returns [[level, title, page_number], ...]
+    for entry in toc:
+        print(entry)
+    ```
+  </Step>
+
+  <Step title="Iterate pages and extract text">
+    Use the document as an iterator to access each page, then call `page.get_text()` to extract plain text.
+
+    ```python
+    import pymupdf
+
+    doc = pymupdf.open("example.pdf")
+
+    for page in doc:
+        text = page.get_text()  # plain text, UTF-8 encoded
+        print(f"--- Page {page.number} ---")
+        print(text)
+    ```
+
+    You can also load a specific page by index (zero-based):
+
+    ```python
+    page = doc[0]        # first page
+    page = doc[-1]       # last page
+    page = doc.load_page(2)  # third page (equivalent to doc[2])
+    ```
+
+    `page.get_text()` accepts a format argument for richer output:
+
+    | Format | Description |
+    |---|---|
+    | `"text"` | Plain text (default) |
+    | `"blocks"` | List of text blocks (paragraphs) |
+    | `"words"` | List of individual words |
+    | `"html"` | Full HTML including images |
+    | `"dict"` | Structured dictionary with position data |
+    | `"json"` | JSON string equivalent of `"dict"` |
+    | `"xml"` | Full character-level position and font data |
+  </Step>
+
+  <Step title="Save extracted text to a file">
+    Write the text from all pages to an output file, separated by page delimiters.
+
+    ```python
+    import pymupdf
+
+    doc = pymupdf.open("example.pdf")
+    out = open("output.txt", "wb")  # open output file in binary mode
+
+    for page in doc:
+        text = page.get_text().encode("utf8")  # encode to UTF-8 bytes
+        out.write(text)
+        out.write(bytes((12,)))  # page delimiter (form feed character 0x0C)
+
+    out.close()
+    ```
+  </Step>
+
+  <Step title="Render a page to an image">
+    Use `page.get_pixmap()` to render a page as a raster image. The result is a `Pixmap` object you can save directly to a file.
+
+    ```python
+    import pymupdf
+
+    doc = pymupdf.open("example.pdf")
+    page = doc[0]  # load the first page
+
+    pix = page.get_pixmap(dpi=150)  # render at 150 DPI (default is 72 DPI)
+    pix.save("page-1.png")          # save as PNG
+    ```
+
+    You can control rendering options:
+
+    ```python
+    # Render with a 2x zoom matrix
+    mat = pymupdf.Matrix(2, 2)
+    pix = page.get_pixmap(matrix=mat)
+
+    # Render as grayscale
+    pix = page.get_pixmap(colorspace=pymupdf.csGRAY)
+
+    # Render with an alpha channel (RGBA)
+    pix = page.get_pixmap(alpha=True)
+    ```
+
+    To save each page as a separate image:
+
+    ```python
+    import pymupdf
+
+    doc = pymupdf.open("example.pdf")
+
+    for page in doc:
+        pix = page.get_pixmap(dpi=150)
+        pix.save(f"page-{page.number}.png")
+    ```
+  </Step>
+
+  <Step title="Search for text on a page">
+    Use `page.search_for()` to find the locations of a string on a page. It returns a list of `Rect` objects, each enclosing one match.
+
+    ```python
+    import pymupdf
+
+    doc = pymupdf.open("example.pdf")
+    page = doc[0]
+
+    areas = page.search_for("PyMuPDF")  # case-insensitive search
+
+    for rect in areas:
+        print(f"Found at: {rect}")  # prints the bounding rectangle
+    ```
+  </Step>
+</Steps>
+
+## Complete example
+
+Here is a full script that demonstrates the most common operations:
+
+```python
+import pymupdf
+
+# Open the document
+doc = pymupdf.open("example.pdf")
+print(f"Opened: {doc.name}")
+print(f"Pages: {doc.page_count}")
+print(f"Title: {doc.metadata.get('title', 'N/A')}")
+print(f"Author: {doc.metadata.get('author', 'N/A')}")
+
+# Extract text from all pages and write to a file
+with open("output.txt", "wb") as out:
+    for page in doc:
+        text = page.get_text().encode("utf8")
+        out.write(text)
+        out.write(bytes((12,)))  # form feed page delimiter
+
+print("Text saved to output.txt")
+
+# Render the first page to a PNG image at 150 DPI
+page = doc[0]
+pix = page.get_pixmap(dpi=150)
+pix.save("page-1.png")
+print("Page 1 rendered to page-1.png")
+
+doc.close()
+```
+
+## The `fitz` legacy name
+
+Older PyMuPDF code may use `import fitz` instead of `import pymupdf`. The name `fitz` comes from the historical rendering engine inside MuPDF. Newer versions of PyMuPDF use `pymupdf` as the canonical import name and provide `fitz` as a fallback alias so old code continues to work.
+
+```python
+import pymupdf        # recommended
+# import fitz        # legacy alias — still works, but not preferred
+```
+
+<Warning>
+  The unrelated PyPI package `fitz` (last updated 2017) conflicts with PyMuPDF's `fitz` alias. If you see `ModuleNotFoundError: No module named 'frontend'` when using `import fitz`, uninstall the conflicting package with `pip uninstall fitz` and reinstall PyMuPDF. See the [installation troubleshooting section](/installation#troubleshooting) for details.
+</Warning>
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
-
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Working with text" icon="font" href="/guides/working-with-text">
+    Extract text by block, word, or character. Get position data, search for strings, and output Markdown for LLM pipelines.
+  </Card>
+  <Card title="Working with images" icon="image" href="/guides/working-with-images">
+    Render pages, extract embedded images, control color spaces and DPI, and save to various formats.
+  </Card>
+  <Card title="Annotations" icon="pen-to-square" href="/guides/annotations">
+    Read and add PDF annotations including highlights, comments, redactions, and form fields.
+  </Card>
+  <Card title="API reference" icon="code" href="/api/document">
+    Full reference for the Document, Page, Pixmap, and all other PyMuPDF classes.
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>

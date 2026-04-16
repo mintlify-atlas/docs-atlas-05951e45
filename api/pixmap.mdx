@@ -1,0 +1,488 @@
+---
+title: "Pixmap class — PyMuPDF API reference"
+description: "Full API reference for PyMuPDF's Pixmap class: creating, saving, converting, and manipulating raster images rendered from document pages."
+---
+
+A `Pixmap` ("pixel map") is PyMuPDF's core raster image object. It represents a rectangular grid of pixels where each pixel is described by one or more color component bytes and an optional alpha byte. Pixmaps are used for everything from rendering pages to image processing, format conversion, and OCR. They can be created from document pages, files, in-memory image data, or raw pixel arrays.
+
+```python
+import pymupdf
+
+doc = pymupdf.open("report.pdf")
+page = doc[0]
+
+# Most common usage: render a page
+pix = page.get_pixmap(dpi=150)
+pix.save("page0.png")
+```
+
+---
+
+## Properties
+
+<ResponseField name="width" type="int">
+  Width of the pixmap in pixels. Also accessible as `pix.w`.
+</ResponseField>
+
+<ResponseField name="height" type="int">
+  Height of the pixmap in pixels. Also accessible as `pix.h`.
+</ResponseField>
+
+<ResponseField name="n" type="int">
+  Total number of bytes per pixel. Equals `colorspace.n + alpha`. For RGB with alpha this is 4, for gray without alpha this is 1.
+</ResponseField>
+
+<ResponseField name="alpha" type="bool">
+  `True` if the pixmap contains an alpha (transparency) channel.
+</ResponseField>
+
+<ResponseField name="colorspace" type="Colorspace or None">
+  The colorspace of the pixmap. `None` for stencil/mask pixmaps.
+</ResponseField>
+
+<ResponseField name="samples" type="bytes">
+  A copy of all pixel data as a `bytes` object. Length equals `width * height * n`. Each successive `n` bytes describe one pixel in row-major order.
+</ResponseField>
+
+<ResponseField name="size" type="int">
+  Total memory occupied by the pixmap object (approximately `width * height * n` bytes plus overhead).
+</ResponseField>
+
+<ResponseField name="irect" type="IRect">
+  The pixmap's bounding rectangle as an `IRect`: `IRect(x, y, x + width, y + height)`.
+</ResponseField>
+
+<ResponseField name="x" type="int">
+  X-coordinate of the top-left corner. Cannot be set directly — use `set_origin()`.
+</ResponseField>
+
+<ResponseField name="y" type="int">
+  Y-coordinate of the top-left corner. Cannot be set directly — use `set_origin()`.
+</ResponseField>
+
+<ResponseField name="xres" type="int">
+  Horizontal resolution in dots per inch. Cannot be set directly — use `set_dpi()`.
+</ResponseField>
+
+<ResponseField name="yres" type="int">
+  Vertical resolution in dots per inch. Cannot be set directly — use `set_dpi()`.
+</ResponseField>
+
+<ResponseField name="stride" type="int">
+  Number of bytes in one image row. Always equals `width * n`.
+</ResponseField>
+
+<ResponseField name="is_monochrome" type="bool">
+  `True` for grayscale pixmaps that contain only pure black and pure white pixels.
+</ResponseField>
+
+<ResponseField name="is_unicolor" type="bool">
+  `True` if all pixels are identical (any colorspace).
+</ResponseField>
+
+<ResponseField name="digest" type="bytes">
+  MD5 hashcode of the pixmap's pixel data (16 bytes). Useful for detecting duplicate pixmaps.
+</ResponseField>
+
+---
+
+## Constructors
+
+`Pixmap` provides several overloaded constructors. Choose the one that matches your input:
+
+<AccordionGroup>
+  <Accordion title="Empty pixmap from colorspace and IRect">
+    ```python
+    pix = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 400, 300))
+    pix = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 400, 300), alpha=True)
+    ```
+
+    Creates an uninitialized pixmap of the given size and colorspace. Call `clear_with()` or `set_rect()` before using the pixel data.
+
+    <ParamField path="colorspace" type="Colorspace" required>
+      The colorspace, e.g. `pymupdf.csRGB`, `pymupdf.csGRAY`, `pymupdf.csCMYK`.
+    </ParamField>
+    <ParamField path="irect" type="IRect" required>
+      The pixel area and top-left origin. Must be a valid, non-empty rectangle.
+    </ParamField>
+    <ParamField path="alpha" type="bool" default="False">
+      Include a transparency channel.
+    </ParamField>
+  </Accordion>
+
+  <Accordion title="From a file">
+    ```python
+    pix = pymupdf.Pixmap("image.png")
+    pix = pymupdf.Pixmap("photo.jpg")
+    ```
+
+    Reads the image and infers all properties automatically. Supported formats: BMP, JPEG, GIF, TIFF, JXR, JPX, PNG, PAM, PBM, PGM, PNM, PPM.
+
+    <ParamField path="filename" type="str" required>
+      Path to the image file.
+    </ParamField>
+  </Accordion>
+
+  <Accordion title="From in-memory image data">
+    ```python
+    data = open("image.png", "rb").read()
+    pix = pymupdf.Pixmap(data)
+    ```
+
+    <ParamField path="stream" type="bytes, bytearray, or BytesIO" required>
+      Complete, valid image file content in memory.
+    </ParamField>
+  </Accordion>
+
+  <Accordion title="From a PDF image by xref">
+    ```python
+    # Extract image at xref 42 from a PDF
+    pix = pymupdf.Pixmap(doc, 42)
+    ```
+
+    <ParamField path="doc" type="Document" required>
+      An open PDF document.
+    </ParamField>
+    <ParamField path="xref" type="int" required>
+      The cross-reference number of an image object in the PDF (obtainable via `page.get_images()`).
+    </ParamField>
+  </Accordion>
+
+  <Accordion title="Copy with colorspace conversion">
+    ```python
+    # Convert CMYK pixmap to RGB
+    rgb_pix = pymupdf.Pixmap(pymupdf.csRGB, cmyk_pix)
+
+    # Create a stencil mask (alpha channel only)
+    mask_pix = pymupdf.Pixmap(None, rgba_pix)
+    ```
+
+    <ParamField path="colorspace" type="Colorspace or None" required>
+      Target colorspace. Use `None` to extract only the alpha channel.
+    </ParamField>
+    <ParamField path="source" type="Pixmap" required>
+      Source pixmap. Its colorspace must not be `None`.
+    </ParamField>
+  </Accordion>
+
+  <Accordion title="Copy and scale">
+    ```python
+    # Scale to half size
+    small = pymupdf.Pixmap(pix, pix.width // 2, pix.height // 2)
+    ```
+
+    <ParamField path="source" type="Pixmap" required>
+      Source pixmap.
+    </ParamField>
+    <ParamField path="width" type="float" required>
+      Target width in pixels.
+    </ParamField>
+    <ParamField path="height" type="float" required>
+      Target height in pixels.
+    </ParamField>
+    <ParamField path="clip" type="IRect">
+      Restrict the result to this area of the scaled pixmap.
+    </ParamField>
+  </Accordion>
+
+  <Accordion title="Copy with alpha channel added or removed">
+    ```python
+    # Add alpha channel
+    pix_alpha = pymupdf.Pixmap(pix, 1)
+
+    # Remove alpha channel
+    pix_no_alpha = pymupdf.Pixmap(pix, 0)
+    ```
+
+    <ParamField path="source" type="Pixmap" required>
+      Source pixmap.
+    </ParamField>
+    <ParamField path="alpha" type="bool" required>
+      `True` to add, `False` to drop the alpha channel.
+    </ParamField>
+  </Accordion>
+
+  <Accordion title="From plain pixel bytes">
+    ```python
+    # Build from raw RGB bytes (no alpha)
+    pix = pymupdf.Pixmap(pymupdf.csRGB, 200, 100, raw_bytes, 0)
+    ```
+
+    <ParamField path="colorspace" type="Colorspace" required>
+      Colorspace matching the raw bytes.
+    </ParamField>
+    <ParamField path="width" type="int" required>
+      Image width in pixels.
+    </ParamField>
+    <ParamField path="height" type="int" required>
+      Image height in pixels.
+    </ParamField>
+    <ParamField path="samples" type="bytes, bytearray, or BytesIO" required>
+      Raw pixel data. Must satisfy `len(samples) == (colorspace.n + alpha) * width * height`.
+    </ParamField>
+    <ParamField path="alpha" type="bool" required>
+      Whether the samples include an alpha channel.
+    </ParamField>
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Saving
+
+### `save(filename, output, jpg_quality)`
+
+Saves the pixmap as an image file.
+
+<ParamField path="filename" type="str, Path, or file object" required>
+  Destination file. The file extension determines the format unless `output` is given.
+</ParamField>
+
+<ParamField path="output" type="str">
+  Explicit format override. Supported: `"jpeg"`, `"png"`, `"pam"`, `"pnm"`, `"pbm"`, `"pgm"`, `"ppm"`, `"ps"`, `"psd"`.
+</ParamField>
+
+<ParamField path="jpg_quality" type="int" default="95">
+  JPEG quality (0–100). Only applies to JPEG output. A value of 98 is near-lossless.
+</ParamField>
+
+```python
+pix.save("output.png")
+pix.save("output.jpg", output="jpeg", jpg_quality=85)
+pix.save("output.psd")   # Adobe Photoshop, supports alpha + CMYK
+```
+
+### `tobytes(output, jpg_quality)` → `bytes`
+
+Returns the pixmap as a `bytes` object in the specified image format. Same options as `save()`.
+
+<ParamField path="output" type="str" default='"png"'>
+  Output image format.
+</ParamField>
+
+<ParamField path="jpg_quality" type="int" default="95">
+  JPEG quality (JPEG only).
+</ParamField>
+
+<ResponseField name="returns" type="bytes">
+  Complete image file as bytes.
+</ResponseField>
+
+```python
+png_bytes = pix.tobytes("png")
+jpg_bytes = pix.tobytes("jpeg", jpg_quality=80)
+
+# Efficient input for tkinter
+import tkinter
+photo = tkinter.PhotoImage(data=pix.tobytes("ppm"))
+```
+
+---
+
+## OCR
+
+### `pdfocr_save(filename, compress, language, tessdata)`
+
+Runs Tesseract OCR on the pixmap and saves the result as a searchable 1-page PDF.
+
+<Warning>
+  Requires Tesseract to be installed and `TESSDATA_PREFIX` set (or `tessdata` provided).
+</Warning>
+
+<ParamField path="filename" type="str or file object" required>
+  Destination file path or a file opened with `"wb"` (including `io.BytesIO()`).
+</ParamField>
+
+<ParamField path="compress" type="bool" default="True">
+  Compress the resulting PDF.
+</ParamField>
+
+<ParamField path="language" type="str" default='"eng"'>
+  Tesseract language code(s). Use `"+"` to combine, e.g. `"eng+deu"`.
+</ParamField>
+
+<ParamField path="tessdata" type="str">
+  Path to the Tesseract `tessdata` folder. Falls back to the `TESSDATA_PREFIX` environment variable.
+</ParamField>
+
+```python
+pix = pymupdf.Pixmap("scanned_page.png")
+pix.pdfocr_save("searchable.pdf", language="eng")
+```
+
+---
+
+## Resolution and origin
+
+### `set_dpi(xres, yres)`
+
+Sets the horizontal and vertical resolution of the pixmap in dots per inch. Stored in the image when saving as PNG.
+
+<ParamField path="xres" type="int" required>
+  Horizontal resolution.
+</ParamField>
+
+<ParamField path="yres" type="int" required>
+  Vertical resolution.
+</ParamField>
+
+### `set_origin(x, y)`
+
+Sets the top-left corner coordinates of the pixmap. Used to position the pixmap within a larger space (e.g. when combining pixmaps with `copy()`).
+
+<ParamField path="x" type="int" required>
+  New X coordinate.
+</ParamField>
+
+<ParamField path="y" type="int" required>
+  New Y coordinate.
+</ParamField>
+
+---
+
+## Pixel manipulation
+
+### `set_rect(irect, color)` → `bool`
+
+Sets all pixels in the given rectangle to the specified color value.
+
+<ParamField path="irect" type="IRect" required>
+  The rectangle to fill. The actual area is intersected with `pix.irect`.
+</ParamField>
+
+<ParamField path="color" type="sequence of int" required>
+  Pixel value as a sequence of integers in `range(256)`. Length must equal `pix.n` (include alpha byte if present).
+</ParamField>
+
+<ResponseField name="returns" type="bool">
+  `True` on success, `False` if the rectangle was invalid or empty.
+</ResponseField>
+
+```python
+# Fill entire pixmap with yellow (RGB)
+pix.set_rect(pix.irect, (255, 255, 0))
+```
+
+### `copy(source, irect)`
+
+Copies a rectangular area from `source` into the corresponding area of this pixmap. Source and destination may have different dimensions and colorspaces (GRAY ↔ RGB conversion is automatic).
+
+<ParamField path="source" type="Pixmap" required>
+  Source pixmap to copy from.
+</ParamField>
+
+<ParamField path="irect" type="IRect" required>
+  The area in `source` to copy. Intersection with this pixmap's `irect` is computed automatically.
+</ParamField>
+
+```python
+pix1.set_origin(0, 0)
+pix2.set_origin(0, 0)
+pix1.copy(pix2, pymupdf.IRect(0, 0, 100, 100))
+```
+
+### `shrink(n)`
+
+Shrinks the pixmap in-place by dividing both width and height by `2^n`. For example, `n=1` halves both dimensions (quarter the pixel count), `n=2` quarters both (1/16 the pixel count).
+
+<ParamField path="n" type="int" required>
+  Shrink factor exponent. Values less than 1 are ignored.
+</ParamField>
+
+### `invert_irect(irect)`
+
+Inverts the color of all pixels within the given rectangle. No effect if `colorspace` is `None`.
+
+<ParamField path="irect" type="IRect">
+  Area to invert. Omit to invert the entire pixmap.
+</ParamField>
+
+---
+
+## Color adjustments
+
+### `gamma_with(gamma)`
+
+Applies a gamma correction factor to the entire pixmap in-place.
+
+<ParamField path="gamma" type="float" required>
+  `1.0` = no change. Values less than 1 lighten the image; values greater than 1 darken it.
+</ParamField>
+
+```python
+pix.gamma_with(0.5)   # lighten
+pix.gamma_with(2.0)   # darken
+```
+
+### `tint_with(black, white)`
+
+Colorizes the pixmap by replacing black and/or white with the given sRGB integer colors. Only supported for `CS_GRAY` and `CS_RGB` colorspaces.
+
+<ParamField path="black" type="int" required>
+  sRGB integer to replace black (e.g. `0x00FF00` for green). Use `0x000000` for no change.
+</ParamField>
+
+<ParamField path="white" type="int" required>
+  sRGB integer to replace white (e.g. `0x0000FF` for blue). Use `0xFFFFFF` for no change.
+</ParamField>
+
+```python
+# Turn a black-and-white scan into a sepia-toned image
+pix.tint_with(0x704214, 0xFFF8DC)
+```
+
+---
+
+## Warping
+
+### `warp(quad, width, height)` → `Pixmap`
+
+Creates a new pixmap by perspective-warping the given quad region so that the four quad corners map to the four corners of a new `width × height` pixmap.
+
+<ParamField path="quad" type="quad_like" required>
+  A convex quadrilateral with coordinates inside `pix.irect`. The corners map clockwise: `ul → tl`, `ur → tr`, `ll → bl`, `lr → br`.
+</ParamField>
+
+<ParamField path="width" type="int" required>
+  Width of the resulting pixmap.
+</ParamField>
+
+<ParamField path="height" type="int" required>
+  Height of the resulting pixmap.
+</ParamField>
+
+<ResponseField name="returns" type="Pixmap">
+  A new pixmap of size `width × height` containing the warped content.
+</ResponseField>
+
+```python
+# De-skew a document corner
+quad = pymupdf.Quad(ul, ur, ll, lr)
+straightened = pix.warp(quad, 600, 800)
+straightened.save("dewarped.png")
+```
+
+---
+
+## Supported output formats
+
+The following formats are available for `save()` and `tobytes()`:
+
+| Format      | Colorspaces        | Alpha | Extensions      |
+|-------------|-------------------|-------|-----------------|
+| jpeg / jpg  | gray, rgb, cmyk   | No    | `.jpg`, `.jpeg` |
+| png         | gray, rgb         | Yes   | `.png`          |
+| pam         | gray, rgb, cmyk   | Yes   | `.pam`          |
+| psd         | gray, rgb, cmyk   | Yes   | `.psd`          |
+| ps          | gray, rgb, cmyk   | No    | `.ps`           |
+| pnm / ppm   | gray, rgb         | No    | `.pnm`, `.ppm`  |
+| pbm         | gray, rgb         | No    | `.pbm`          |
+| pgm         | gray, rgb         | No    | `.pgm`          |
+
+<Tip>
+  For CMYK colorspaces with formats that don't support them, convert first: `rgb_pix = pymupdf.Pixmap(pymupdf.csRGB, cmyk_pix)`.
+</Tip>
+
+<Tip>
+  Use `"ppm"` format as input to `tkinter.PhotoImage` — it is approximately 60 times faster than PNG.
+</Tip>

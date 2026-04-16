@@ -1,0 +1,179 @@
+---
+title: "Convert documents to and from PDF with PyMuPDF"
+description: "How to convert PDFs to images, HTML, text, and other formats, and how to create new PDFs from images or other documents using PyMuPDF."
+---
+
+PyMuPDF can act as a conversion hub — taking PDFs and producing images, SVG, text, or Markdown, and going the other direction by converting XPS, EPUB, images, and other formats into PDF. Most conversions require only a few lines of code and no external dependencies beyond PyMuPDF itself.
+
+## Converting a PDF page to an image
+
+Render any page to a `Pixmap` and save it in the format you need. Use the `dpi` parameter to control output resolution.
+
+```python
+import pymupdf
+
+doc = pymupdf.open("input.pdf")
+page = doc[0]
+
+# Save as PNG at 150 dpi
+pix = page.get_pixmap(dpi=150)
+pix.save("page-0.png")
+
+# Save as JPEG
+pix.save("page-0.jpg")
+```
+
+## Converting a whole PDF to individual images
+
+Loop through all pages and save each one. The page number is zero-indexed.
+
+```python
+import pymupdf
+
+doc = pymupdf.open("input.pdf")
+for page in doc:
+    pix = page.get_pixmap(dpi=150)
+    pix.save(f"page-{page.number:03d}.png")
+```
+
+## Extracting text to a file
+
+Call `page.get_text()` for each page and write the result to a text file. Use `sort=True` to approximate reading order.
+
+```python
+import pathlib, pymupdf
+
+doc = pymupdf.open("input.pdf")
+text = chr(12).join(page.get_text(sort=True) for page in doc)
+pathlib.Path("output.txt").write_bytes(text.encode())
+```
+
+## Merging PDFs
+
+`doc.insert_pdf()` copies pages from one document into another. You can control which page range to copy and where to insert them.
+
+```python
+import pymupdf
+
+doc_a = pymupdf.open("part-a.pdf")
+doc_b = pymupdf.open("part-b.pdf")
+
+# Append all pages of doc_b to the end of doc_a
+doc_a.insert_pdf(doc_b)
+doc_a.save("merged.pdf")
+```
+
+To insert only a subset of pages, use the `from_page` and `to_page` parameters:
+
+```python
+# Insert pages 0–4 of doc_b after the last page of doc_a
+doc_a.insert_pdf(doc_b, from_page=0, to_page=4)
+```
+
+## Splitting a PDF
+
+`doc.select()` keeps only the pages whose indices you pass in, discarding the rest. This modifies the document in place.
+
+```python
+import pymupdf
+
+doc = pymupdf.open("large.pdf")
+
+# Keep only pages 0, 1, 2 (first three pages)
+doc.select([0, 1, 2])
+doc.save("first-three.pdf")
+```
+
+<Tip>
+`doc.select()` accepts any list of zero-based page indices, including duplicates and out-of-order sequences. You can use it to reorder pages as well as split.
+</Tip>
+
+## Creating a PDF from images
+
+Open each image as a one-page document, convert it to PDF bytes, then insert it into the output document:
+
+```python
+import os, pymupdf
+
+output = pymupdf.open()          # new empty PDF
+imgdir = "/path/to/images"
+
+for filename in sorted(os.listdir(imgdir)):
+    img = pymupdf.open(os.path.join(imgdir, filename))  # open image
+    rect = img[0].rect
+    pdfbytes = img.convert_to_pdf()                      # image → PDF bytes
+    img.close()
+
+    imgpdf = pymupdf.open("pdf", pdfbytes)
+    page = output.new_page(width=rect.width, height=rect.height)
+    page.show_pdf_page(rect, imgpdf, 0)
+
+output.save("from-images.pdf")
+```
+
+## Converting XPS, EPUB, and other formats to PDF
+
+Any format that PyMuPDF can open can be converted to PDF with `doc.convert_to_pdf()`:
+
+```python
+import pymupdf
+
+# Convert an XPS file to PDF
+xps = pymupdf.open("input.xps")
+pdfbytes = xps.convert_to_pdf()
+pdf = pymupdf.open("pdf", pdfbytes)
+pdf.save("output.pdf")
+```
+
+The same pattern works for EPUB, CBZ, FB2, and other supported types.
+
+## Converting PDF to SVG
+
+SVG is a vector format, so each page must be exported separately. Use `page.get_svg_image()`:
+
+```python
+import pymupdf
+
+doc = pymupdf.open("input.pdf")
+
+for page in doc:
+    svg = page.get_svg_image(matrix=pymupdf.Identity)
+    with open(f"page-{page.number}.svg", "w", encoding="utf-8") as f:
+        f.write(svg)
+```
+
+## The DocumentWriter class for advanced output
+
+`pymupdf.DocumentWriter` provides a low-level interface for streaming pages to a file in a variety of output formats (PDF, SVG, plain text, and others). It is the mechanism used internally by the Story API.
+
+```python
+import pymupdf
+
+src = pymupdf.open("input.pdf")
+writer = pymupdf.DocumentWriter("output.pdf")
+
+for page in src:
+    device = writer.begin_page(page.rect)
+    page.run(device, pymupdf.Identity)
+    writer.end_page()
+
+writer.close()
+```
+
+<Note>
+`DocumentWriter` is primarily useful when you need streaming output, custom media boxes, or are using the `Story` class for HTML-to-PDF rendering.
+</Note>
+
+## Converting PDF to Markdown (for LLMs)
+
+The `pymupdf4llm` companion package converts a PDF to Markdown text that preserves headings, tables, and lists — ideal for feeding into language models or RAG pipelines:
+
+```python
+import pymupdf4llm
+import pathlib
+
+md_text = pymupdf4llm.to_markdown("input.pdf")
+pathlib.Path("output.md").write_bytes(md_text.encode())
+```
+
+Install the package with `pip install pymupdf4llm` before using it.

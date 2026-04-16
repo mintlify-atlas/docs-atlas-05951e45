@@ -1,0 +1,184 @@
+---
+title: "Outline class — PyMuPDF API reference"
+description: "API reference for PyMuPDF's Outline class representing PDF table of contents items with title, destination, and nested bookmark navigation."
+---
+
+The `Outline` class represents a single item in a PDF document's outline (also known as bookmarks or the table of contents). The outline is a tree structure: items at the same level are linked via `next`, and child items are reached via `down`. The first item in the tree is accessible as `Document.outline`; from there you can traverse the entire outline by following these two pointers recursively. If the document has no outline, `Document.outline` is `None`.
+
+## Getting the outline
+
+```python
+import pymupdf
+
+doc = pymupdf.open("document.pdf")
+outline = doc.outline   # first item, or None if no outline
+
+if outline:
+    print(outline.title, "→ page", outline.page)
+```
+
+For most use cases, `Document.get_toc()` is simpler — it returns the full outline as a flat list of `[level, title, page, dest]` entries without requiring manual tree traversal.
+
+```python
+toc = doc.get_toc()
+for level, title, page, dest in toc:
+    indent = "  " * (level - 1)
+    print(f"{indent}{title}  (page {page + 1})")
+```
+
+---
+
+## Properties
+
+<ResponseField name="title" type="str">
+  The bookmark title string, or `None` if not set.
+</ResponseField>
+
+<ResponseField name="page" type="int">
+  Zero-based page number this bookmark points to.
+</ResponseField>
+
+<ResponseField name="uri" type="str">
+  Link target string. Its meaning depends on `is_external`:
+
+  - **External** (`is_external=True`): Points to a resource outside the PDF. Starts with `http://`, `file:`, `mailto:`, etc.
+  - **Internal** (`is_external=False`): `None`, or an internal reference such as `#nnnn` for a 1-based page number, or a named destination.
+</ResponseField>
+
+<ResponseField name="is_external" type="bool">
+  `True` when the bookmark points to a target outside the current document.
+</ResponseField>
+
+<ResponseField name="is_open" type="bool">
+  Whether this outline item's children should be displayed expanded (`True`) or collapsed (`False`) in supporting PDF viewers.
+</ResponseField>
+
+<ResponseField name="down" type="Outline">
+  The first child item of this outline entry (one level deeper). `None` if this item has no children.
+</ResponseField>
+
+<ResponseField name="next" type="Outline">
+  The next sibling item at the same level. `None` if this is the last item at its level.
+</ResponseField>
+
+<ResponseField name="dest" type="linkDest">
+  A `linkDest` object containing the full navigation destination details for this outline item. See the `dest` section below.
+</ResponseField>
+
+---
+
+## The dest object
+
+Each `Outline` item's `dest` property is a `linkDest` object that provides richer destination information than the simple `page` integer.
+
+<ResponseField name="dest.page" type="int">
+  Zero-based destination page number.
+</ResponseField>
+
+<ResponseField name="dest.to" type="Point">
+  The exact coordinate on the destination page to scroll to.
+</ResponseField>
+
+<ResponseField name="dest.zoom" type="float">
+  The zoom level to apply at the destination. `0` means "inherit current zoom".
+</ResponseField>
+
+<ResponseField name="dest.kind" type="int">
+  The link kind constant indicating how to interpret the destination (e.g., `LINK_GOTO`, `LINK_URI`, `LINK_NAMED`, `LINK_GOTOR`).
+</ResponseField>
+
+<ResponseField name="dest.uri" type="str">
+  For external links: the target URI string.
+</ResponseField>
+
+<ResponseField name="dest.is_external" type="bool">
+  Whether the destination is outside the current document.
+</ResponseField>
+
+---
+
+## Traversing the outline tree
+
+The outline is a binary tree linked by `next` (siblings) and `down` (children). Use recursion to walk the full structure:
+
+```python
+import pymupdf
+
+def walk_outline(outline, level=0):
+    """Recursively print the outline tree."""
+    while outline:
+        indent = "  " * level
+        print(f"{indent}{outline.title}  (page {outline.page + 1})")
+        if outline.down:
+            walk_outline(outline.down, level + 1)
+        outline = outline.next
+
+doc = pymupdf.open("document.pdf")
+walk_outline(doc.outline)
+```
+
+---
+
+## Building a table of contents from the outline
+
+```python
+import pymupdf
+
+def build_toc(outline, level=1, toc=None):
+    """Build a list of [level, title, page] entries."""
+    if toc is None:
+        toc = []
+    while outline:
+        toc.append([level, outline.title, outline.page + 1])
+        if outline.down:
+            build_toc(outline.down, level + 1, toc)
+        outline = outline.next
+    return toc
+
+doc = pymupdf.open("document.pdf")
+toc = build_toc(doc.outline)
+
+for level, title, page in toc:
+    print(f"{'  ' * (level - 1)}{title}: p.{page}")
+```
+
+<Tip>
+For most use cases, `doc.get_toc()` is the simpler alternative. It returns the same structure as a flat list and handles the tree traversal for you.
+</Tip>
+
+---
+
+## Using dest for precise navigation
+
+When you need the exact scroll position or zoom level of a bookmark, use `dest` instead of the `page` property:
+
+```python
+doc = pymupdf.open("document.pdf")
+outline = doc.outline
+
+while outline:
+    dest = outline.dest
+    print(
+        f"{outline.title}: "
+        f"page={dest.page}, "
+        f"position={dest.to}, "
+        f"zoom={dest.zoom}"
+    )
+    outline = outline.next
+```
+
+---
+
+## Checking for external links
+
+```python
+doc = pymupdf.open("document.pdf")
+outline = doc.outline
+
+while outline:
+    if outline.is_external:
+        print(f"External link: {outline.title} → {outline.uri}")
+    else:
+        print(f"Internal: {outline.title} → page {outline.page + 1}")
+    outline = outline.next
+```

@@ -1,0 +1,466 @@
+---
+title: "Annot class — PyMuPDF API reference"
+description: "Full API reference for PyMuPDF's Annot class: reading and modifying PDF annotation properties, colors, borders, opacity, and appearance streams."
+---
+
+The `Annot` class represents a single PDF annotation — an object such as a sticky note, highlight, stamp, or free-text comment that is associated with a specific location on a PDF page. There is a parent-child relationship between an annotation and its page: if the page object becomes unusable (because the document was closed or its structure changed), any existing `Annot` object for that page also becomes orphaned, and accessing its properties or methods will raise an exception.
+
+<Note>
+Annotations are PDF-only. Attempting to use this class with non-PDF documents will raise an error.
+</Note>
+
+## Getting annotations
+
+Annotations on a page are accessed via `Page.first_annot` and then iterated with `Annot.next`. Widget (form field) annotations are excluded from this chain — they are available separately via `Page.first_widget`.
+
+```python
+import pymupdf
+
+doc = pymupdf.open("example.pdf")
+page = doc[0]
+
+annot = page.first_annot
+while annot:
+    print(annot.type, annot.rect)
+    annot = annot.next
+```
+
+<Warning>
+Using `Annot.update()` inside a `Page.annots()` loop is not recommended. Most annotation updates require the owning page to be reloaded, which cannot be done inside the loop.
+</Warning>
+
+## Properties
+
+<ResponseField name="rect" type="Rect">
+  The rectangle containing the annotation on the page.
+</ResponseField>
+
+<ResponseField name="type" type="list">
+  A list describing the annotation type, for example `[2, 'FreeText', 'FreeTextCallout']`. The first element is an integer type code, the second is the type name, and the optional third element is a subtype name.
+</ResponseField>
+
+<ResponseField name="info" type="dict">
+  A dictionary of annotation metadata. All values are strings; missing entries return an empty string.
+
+  <Expandable title="info keys">
+    <ResponseField name="name" type="string">
+      For `Stamp` annotations: the stamp text (e.g. `"Sold"`). For `FileAttachment`: the icon name (e.g. `"PushPin"`).
+    </ResponseField>
+    <ResponseField name="content" type="string">
+      The text shown in the annotation's pop-up window. Used for `Text` and `FreeText` annotation types.
+    </ResponseField>
+    <ResponseField name="title" type="string">
+      The title of the pop-up window. By convention, this is the annotation author's name.
+    </ResponseField>
+    <ResponseField name="creationDate" type="string">
+      Creation timestamp in PDF datetime format.
+    </ResponseField>
+    <ResponseField name="modDate" type="string">
+      Last-modified timestamp in PDF datetime format.
+    </ResponseField>
+    <ResponseField name="subject" type="string">
+      Subject string. Some PDF viewers display this field.
+    </ResponseField>
+    <ResponseField name="id" type="string">
+      Unique annotation identifier from PDF key `/NM`. Annotations added by PyMuPDF will have a unique name here.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="flags" type="int">
+  An integer whose low-order bits encode presentation flags for the annotation.
+</ResponseField>
+
+<ResponseField name="colors" type="dict">
+  A dictionary with two keys, `"stroke"` and `"fill"`, each holding a list of floats in the range `[0, 1]`. List length encodes the colorspace: 1 = GRAY, 3 = RGB, 4 = CMYK. Either list may be empty when no color is specified.
+
+  <Note>
+    The color of `Highlight` annotations is a **stroke** color, not a fill color. For `FreeText` annotations the stroke color fills the rectangle; the text color and border color are not separately accessible.
+  </Note>
+</ResponseField>
+
+<ResponseField name="border" type="dict">
+  Border characteristics. May be empty if no border information is present.
+
+  <Expandable title="border keys">
+    <ResponseField name="width" type="float">
+      Border thickness in points. `-1.0` if not specified.
+    </ResponseField>
+    <ResponseField name="dashes" type="list[int]">
+      Dash pattern. `[]` means no dashes; `[n]` means equal on/off lengths of `n` points.
+    </ResponseField>
+    <ResponseField name="style" type="string">
+      One-character border style: `"S"` (Solid), `"D"` (Dashed), `"B"` (Beveled), `"I"` (Inset), `"U"` (Underline).
+    </ResponseField>
+    <ResponseField name="clouds" type="int">
+      Cloudy border intensity. `0` = straight line, `1` = small semi-circles, `2` = large semi-circles, `-1` = not specified.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="opacity" type="float">
+  Transparency of the annotation in the range `[0, 1]`. Returns `-1.0` if no opacity is set (PDF default is fully opaque).
+</ResponseField>
+
+<ResponseField name="blendmode" type="str">
+  The annotation's blend mode, or `None` if not set. See the PDF specification for valid blend mode names.
+</ResponseField>
+
+<ResponseField name="is_open" type="bool">
+  Whether the annotation's Popup is open. For `Text` ("sticky note") annotations, reflects whether the annotation itself is open.
+</ResponseField>
+
+<ResponseField name="has_popup" type="bool">
+  Whether the annotation has an associated Popup annotation.
+</ResponseField>
+
+<ResponseField name="popup_rect" type="Rect">
+  Rectangle of the associated Popup annotation. Returns an infinite rectangle if no Popup exists.
+</ResponseField>
+
+<ResponseField name="rotation" type="int">
+  Rotation angle of the annotation in degrees. Returns `-1` if no rotation is set (which implies 0°). Other values are normalized to `[0, 360)`.
+</ResponseField>
+
+<ResponseField name="vertices" type="list">
+  Coordinates for annotations that are defined by point sequences: `Line`, `FreeText`, `PolyLine`, `Polygon`, text markup annotations, and `Ink` annotations.
+</ResponseField>
+
+<ResponseField name="line_ends" type="tuple">
+  A pair of integers specifying the start and end symbol for `FreeText`, `Line`, `PolyLine`, and `Polygon` annotation types. `None` for other types.
+</ResponseField>
+
+<ResponseField name="xref" type="int">
+  The PDF cross-reference number of this annotation object.
+</ResponseField>
+
+<ResponseField name="irt_xref" type="int">
+  The xref of the annotation to which this annotation is a response. Returns `0` if this annotation is not a response.
+</ResponseField>
+
+<ResponseField name="popup_xref" type="int">
+  The xref of the associated Popup annotation. `0` if none exists.
+</ResponseField>
+
+<ResponseField name="parent" type="Page">
+  The owning `Page` object.
+</ResponseField>
+
+<ResponseField name="next" type="Annot">
+  The next annotation on the page, or `None` if this is the last.
+</ResponseField>
+
+<ResponseField name="file_info" type="dict">
+  For `FileAttachment` annotations: a dictionary with keys `filename`, `ufilename`, `desc`, `size` (uncompressed), and `length` (compressed). Returns `None` for all other annotation types.
+</ResponseField>
+
+---
+
+## Methods
+
+### get_pixmap
+
+Render the annotation to a `Pixmap` as it appears on the page. All parameters are keyword-only.
+
+<ParamField body="matrix" type="matrix_like" default="pymupdf.Identity">
+  Transformation matrix for rendering. Ignored if `dpi` is specified.
+</ParamField>
+
+<ParamField body="dpi" type="int" default="None">
+  Desired resolution in dots per inch. When set, `matrix` is ignored.
+</ParamField>
+
+<ParamField body="colorspace" type="Colorspace" default="pymupdf.csRGB">
+  Color space for the output pixmap.
+</ParamField>
+
+<ParamField body="alpha" type="bool" default="False">
+  Whether to include an alpha (transparency) channel. When `True`, pixels are premultiplied.
+</ParamField>
+
+Returns a `Pixmap` whose `IRect` equals `annot.rect.irect`.
+
+<Note>
+If the annotation was just created or modified, reload the page first: `page = doc.reload_page(page)`.
+</Note>
+
+```python
+pixmap = annot.get_pixmap(dpi=150)
+pixmap.save("annot.png")
+```
+
+---
+
+### get_text
+
+Extract the text content of the annotation in various formats. Relevant mainly for `FreeText` and `Stamp` annotation types; other types return an empty string.
+
+<ParamField body="opt" type="str">
+  Output format. One of: `"text"` (default), `"blocks"`, `"words"`, `"html"`, `"xhtml"`, `"xml"`, `"dict"`, `"json"`, `"rawdict"`. Works identically to `Page.get_text()`.
+</ParamField>
+
+<ParamField body="clip" type="rect_like" default="annot.rect">
+  Restrict extraction to this area.
+</ParamField>
+
+<ParamField body="flags" type="int" default="None">
+  Control the amount of data returned.
+</ParamField>
+
+```python
+text = annot.get_text("text")
+```
+
+---
+
+### get_textbox
+
+Return annotation text as a plain string. Mostly equivalent to `get_text("text")`, except that line breaks may differ.
+
+<ParamField body="rect" type="rect_like" default="annot.rect">
+  The area to consider.
+</ParamField>
+
+Returns a `str`.
+
+---
+
+### set_info
+
+Update annotation metadata. Pass `None` to leave a field unchanged; pass an empty string to delete existing data.
+
+<ParamField body="info" type="dict" default="None">
+  A dictionary matching the structure of `Annot.info`. If this is a valid dict, all other arguments are ignored.
+</ParamField>
+
+<ParamField body="content" type="str" default="None">
+  Text for the annotation pop-up window.
+</ParamField>
+
+<ParamField body="title" type="str" default="None">
+  Author name shown in the pop-up window title.
+</ParamField>
+
+<ParamField body="creationDate" type="str" default="None">
+  Creation date in PDF datetime format.
+</ParamField>
+
+<ParamField body="modDate" type="str" default="None">
+  Last-modified date in PDF datetime format.
+</ParamField>
+
+<ParamField body="subject" type="str" default="None">
+  Subject string.
+</ParamField>
+
+```python
+info = annot.info
+info["title"] = "Alice"
+info["content"] = "Reviewed and approved."
+annot.set_info(info)
+```
+
+---
+
+### set_border
+
+Change border width, dash pattern, style, and cloud effect.
+
+<ParamField body="border" type="dict" default="None">
+  A dictionary with keys `"width"`, `"style"`, `"dashes"`, `"clouds"`. Omitted keys are left unchanged. When provided, all other arguments are ignored.
+</ParamField>
+
+<ParamField body="width" type="float" default="None">
+  Border line width in points.
+</ParamField>
+
+<ParamField body="style" type="str" default="None">
+  Border style character (`"S"`, `"D"`, `"B"`, `"I"`, or `"U"`).
+</ParamField>
+
+<ParamField body="dashes" type="sequence" default="None">
+  Integer sequence for dash pattern. Use `[]` to remove dashing. Specifying a non-empty sequence automatically sets `style` to `"D"`.
+</ParamField>
+
+<ParamField body="clouds" type="int" default="None">
+  Cloudy border setting (`0`–`2`). Only supported for `Square`, `Circle`, and `Polygon` annotations. Use `0` to remove cloud effect.
+</ParamField>
+
+```python
+annot.set_border(width=2, style="D", dashes=[4, 2])
+annot.update()
+```
+
+---
+
+### set_colors
+
+Change the stroke and fill colors. Do not use this method for `FreeText` annotations — use `Annot.update()` instead.
+
+<ParamField body="colors" type="dict" default="None">
+  Dictionary with keys `"stroke"` and/or `"fill"`. When provided, `stroke` and `fill` arguments are ignored.
+</ParamField>
+
+<ParamField body="stroke" type="sequence" default="None">
+  New stroke color as a float sequence. Use `[]` to remove the color.
+</ParamField>
+
+<ParamField body="fill" type="sequence" default="None">
+  New fill color as a float sequence. Use `[]` to remove the color.
+</ParamField>
+
+```python
+annot.set_colors(stroke=(0, 0, 1), fill=(0.75, 0.8, 0.95))
+annot.update()
+```
+
+---
+
+### set_flags
+
+Set the annotation's presentation flags.
+
+<ParamField body="flags" type="int" required>
+  Integer flags value. Combine multiple flags with the `|` operator.
+</ParamField>
+
+---
+
+### set_opacity
+
+Set the annotation's transparency.
+
+<ParamField body="value" type="float" required>
+  Opacity in the range `[0, 1]`. Values outside this range are treated as `1` (fully opaque).
+</ParamField>
+
+```python
+annot.set_opacity(0.5)  # 50% transparent
+annot.update()
+```
+
+---
+
+### set_blendmode
+
+Set the annotation's blend mode.
+
+<ParamField body="blendmode" type="str" required>
+  A blend mode name from the predefined `PDF_BM_*` constants. Use `PDF_BM_Normal` to remove a blend mode.
+</ParamField>
+
+---
+
+### set_name
+
+Change the name field of the annotation. For `FileAttachment` and `Text` annotations this controls the icon; for `Stamp` annotations it sets the stamp text.
+
+<ParamField body="name" type="str" required>
+  The new name string.
+</ParamField>
+
+<Warning>
+For `Stamp` annotations, setting an arbitrary name does not resize or reflow the stamp rectangle. Text is written in Times-Bold, horizontally centered, and truncated to fit. The text length at fontsize 20 must not exceed 190 points: `pymupdf.get_text_length(text, fontname="tibo", fontsize=20) <= 190`.
+</Warning>
+
+---
+
+### set_language
+
+Set the annotation's language.
+
+<ParamField body="language" type="str" required>
+  An ISO 639 language code string.
+</ParamField>
+
+---
+
+### update
+
+Synchronize the annotation's visual appearance with its current properties. Call this after any change that affects the appearance (colors, opacity, blend mode, rotation, content for `FreeText`).
+
+You may safely **omit** `update()` after: `set_rect()`, `set_flags()`, `set_oc()`, `update_file()`, or `set_info()` changes that do not touch `"content"`.
+
+<ParamField body="opacity" type="float" default="None">
+  Set or change transparency. Valid range: `0 <= opacity < 1`.
+</ParamField>
+
+<ParamField body="blend_mode" type="str" default="None">
+  Set or change the blend mode.
+</ParamField>
+
+<ParamField body="fontsize" type="float" default="0">
+  Change the font size. `FreeText` annotations only.
+</ParamField>
+
+<ParamField body="text_color" type="sequence or float" default="None">
+  Change the text/border color. `FreeText` annotations only. Equivalent to `border_color`.
+</ParamField>
+
+<ParamField body="border_color" type="sequence or float" default="None">
+  Change the border color. `FreeText` annotations only. Equivalent to `text_color`.
+</ParamField>
+
+<ParamField body="fill_color" type="sequence or float" default="None">
+  Fill color for the annotation.
+</ParamField>
+
+<ParamField body="cross_out" type="bool" default="True">
+  Add two diagonal lines. `Redact` annotations only. Specify `False` to suppress even if the annotation was created without it.
+</ParamField>
+
+<ParamField body="rotate" type="int" default="-1">
+  New rotation angle. `-1` means no change. For `FreeText`, use only `0`, `90`, `180`, or `270`.
+</ParamField>
+
+Returns `bool`.
+
+```python
+annot.set_opacity(0.7)
+annot.set_colors(stroke=(1, 0, 0))
+annot.update(blend_mode="Multiply")
+```
+
+---
+
+### delete_responses
+
+Delete all annotations that respond to this annotation, including any associated Popup annotations.
+
+```python
+annot.delete_responses()
+```
+
+---
+
+## Complete example
+
+```python
+import pymupdf
+
+doc = pymupdf.open("circle-in.pdf")
+page = doc[0]
+annot = page.first_annot
+
+# Update border to dashed
+annot.set_border(dashes=[3])
+
+# Set stroke and fill colors
+annot.set_colors({"stroke": (0, 0, 1), "fill": (0.75, 0.8, 0.95)})
+
+# Update metadata
+info = annot.info
+info["title"] = "Jorj X. McKie"
+info["content"] = "Changed border and colors."
+info["subject"] = "Demonstration of PyMuPDF"
+annot.set_info(info)
+
+# Enlarge the annotation rectangle by 20%
+r = annot.rect
+r.x1 = r.x0 + r.width * 1.2
+r.y1 = r.y0 + r.height * 1.2
+annot.set_rect(r)
+
+annot.update()
+doc.save("circle-out.pdf")
+```

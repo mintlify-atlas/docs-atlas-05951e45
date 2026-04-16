@@ -1,0 +1,442 @@
+---
+title: "Command-line interface (CLI) — PyMuPDF API reference"
+description: "Reference for the PyMuPDF CLI: clean, extract, join, show, gettext, and embedded file commands for PDF batch processing from the terminal."
+keywords: ["pymupdf", "cli", "command line", "clean", "extract", "join", "gettext", "show", "embed", "batch"]
+---
+
+PyMuPDF ships a command-line interface (CLI) for common PDF batch operations — cleaning, extracting resources, joining documents, and exporting text — without writing any Python code. The CLI was added in PyMuPDF v1.16.8 and covers functionality that partially overlaps with `mutool`, while also handling features MuPDF dropped (such as embedded files).
+
+---
+
+## Invocation
+
+<Tabs>
+  <Tab title="Installed command">
+    ```bash
+    pymupdf <command> [options]
+    ```
+  </Tab>
+  <Tab title="Python -m">
+    ```bash
+    python -m pymupdf <command> [options]
+    ```
+  </Tab>
+  <Tab title="Inside a script">
+    ```python
+    import sys
+    import pymupdf.__main__
+
+    cmd = "clean input.pdf output.pdf -pages 1,N".split()
+    saved = sys.argv[1:]
+    sys.argv[1:] = cmd
+    pymupdf.__main__.main()
+    sys.argv[1:] = saved
+    ```
+  </Tab>
+</Tabs>
+
+Get top-level help or per-command help:
+
+```bash
+pymupdf -h
+pymupdf clean -h
+```
+
+---
+
+## Page and xref selection syntax
+
+Several commands accept a `-pages` or `-xrefs` argument. The format is shared across all commands:
+
+- **1-based** page numbers.
+- Comma-separated integers and/or ranges: `1,5-7,50-N`.
+- Use `N` to represent the last page or last xref.
+- Ranges may be reversed (e.g. `N-1` iterates pages from last to first).
+- Items may overlap or repeat.
+
+<Note>
+  When `-pages` is used with the `clean` command, only page-level objects are copied — document-level items such as embedded files are excluded from the output.
+</Note>
+
+---
+
+## Commands
+
+### `clean` — optimize or subset a PDF
+
+Sanitizes, compresses, and optionally restructures a PDF. Functionally similar to `mutool clean`. Can also create a sub-document from a page selection.
+
+```bash
+pymupdf clean [options] input output
+```
+
+<ParamField path="input" type="positional" required>
+  Path to the input PDF file.
+</ParamField>
+
+<ParamField path="output" type="positional" required>
+  Path to write the output PDF file.
+</ParamField>
+
+<ParamField path="-password" type="str">
+  Password to open a protected input PDF.
+</ParamField>
+
+<ParamField path="-encryption" type="str" default="none">
+  Encryption method for the output. One of `keep`, `none`, `rc4-40`, `rc4-128`, `aes-128`, `aes-256`.
+</ParamField>
+
+<ParamField path="-owner" type="str">
+  Owner password for the output PDF.
+</ParamField>
+
+<ParamField path="-user" type="str">
+  User password for the output PDF.
+</ParamField>
+
+<ParamField path="-garbage" type="int" default="0">
+  Garbage collection level (0–4). Higher levels remove more unreferenced objects.
+</ParamField>
+
+<ParamField path="-compress" type="flag">
+  Deflate-compress all streams in the output.
+</ParamField>
+
+<ParamField path="-ascii" type="flag">
+  ASCII-encode all binary data in the output.
+</ParamField>
+
+<ParamField path="-linear" type="flag">
+  Linearize the output for fast web (streaming) display.
+</ParamField>
+
+<ParamField path="-permission" type="int" default="-1">
+  Integer encoding PDF permission flags.
+</ParamField>
+
+<ParamField path="-sanitize" type="flag">
+  Syntax-check and normalize content streams.
+</ParamField>
+
+<ParamField path="-pretty" type="flag">
+  Pretty-print the PDF structure.
+</ParamField>
+
+<ParamField path="-pages" type="str">
+  Create a sub-document from this page range (e.g. `1,5-7,50-N`).
+</ParamField>
+
+```bash
+# Compress and sanitize a PDF
+pymupdf clean -compress -sanitize input.pdf clean_output.pdf
+
+# Extract pages 1–10 into a new file, with AES-256 encryption
+pymupdf clean -pages 1-10 -encryption aes-256 -owner s3cr3t input.pdf subset.pdf
+```
+
+---
+
+### `extract` — extract images and fonts
+
+Extracts embedded images and/or fonts from selected pages of a PDF to a directory on disk.
+
+```bash
+pymupdf extract [options] input
+```
+
+<ParamField path="input" type="positional" required>
+  Path to the PDF file.
+</ParamField>
+
+<ParamField path="-images" type="flag">
+  Extract images. Output filenames follow the pattern `img-<xref>.<ext>`.
+</ParamField>
+
+<ParamField path="-fonts" type="flag">
+  Extract fonts. Output filenames are `<fontname>-<xref>.<ext>` with spaces replaced by hyphens.
+</ParamField>
+
+<ParamField path="-output" type="str">
+  Output directory (must already exist). Defaults to the current directory.
+</ParamField>
+
+<ParamField path="-password" type="str">
+  Password for a protected PDF.
+</ParamField>
+
+<ParamField path="-pages" type="str">
+  Only consider images/fonts on these pages (e.g. `1,5-7,50-N`).
+</ParamField>
+
+```bash
+# Extract all images and fonts from the entire document
+pymupdf extract -images -fonts -output ./resources input.pdf
+
+# Extract only images from page 1 and pages 5 through 10
+pymupdf extract -images -pages 1,5-10 -output ./imgs input.pdf
+```
+
+---
+
+### `join` — merge PDF documents
+
+Joins pages from multiple PDF files into a single output document.
+
+```bash
+pymupdf join -output OUTPUT [input ...]
+```
+
+<ParamField path="-output" type="str" required>
+  Output PDF filename. You may use one of the input filenames here to overwrite it in place.
+</ParamField>
+
+<ParamField path="input" type="positional">
+  One or more input specifications in the format `filename[,password[,pages]]`.
+
+  - **password** is required if pages are specified; use two commas (`,,`) if the PDF has no password.
+  - **pages** follow the standard range syntax (`1,5-7,50-N`).
+</ParamField>
+
+```bash
+# Join three files: all pages of file1, last+first of file2 (password "secret"),
+# pages 5 to last of file3
+pymupdf join -output merged.pdf \
+    file1.pdf,,N-1 \
+    file2.pdf,secret,N,1 \
+    file3.pdf,,5-N
+```
+
+---
+
+### `show` — display PDF information
+
+Prints metadata, catalog, trailer, and page/object details to stdout.
+
+```bash
+pymupdf show [options] input
+```
+
+<ParamField path="input" type="positional" required>
+  Path to the PDF file.
+</ParamField>
+
+<ParamField path="-password" type="str">
+  Password for a protected PDF.
+</ParamField>
+
+<ParamField path="-catalog" type="flag">
+  Print the PDF catalog object.
+</ParamField>
+
+<ParamField path="-trailer" type="flag">
+  Print the PDF trailer dictionary.
+</ParamField>
+
+<ParamField path="-metadata" type="flag">
+  Print the document metadata (author, title, subject, etc.).
+</ParamField>
+
+<ParamField path="-xrefs" type="str">
+  Print selected PDF objects by xref number (e.g. `1,5-7,N`).
+</ParamField>
+
+<ParamField path="-pages" type="str">
+  Print page object details for selected pages (e.g. `1,5-7,50-N`).
+</ParamField>
+
+```bash
+# Show basic document summary
+pymupdf show document.pdf
+
+# Show metadata and trailer
+pymupdf show -metadata -trailer document.pdf
+
+# Show specific page objects and xrefs
+pymupdf show -pages 1,3 -xrefs 10-15 document.pdf
+```
+
+Example output:
+
+```text
+'document.pdf', pages: 2, objects: 1645, 1.4 MB, PDF 1.6, encryption: Standard V4 R4 128-bit AES
+document contains 740 root form fields and is signed
+
+------------------------------- PDF metadata ------------------------------
+       format: PDF 1.6
+        title: FORM FDA 1572
+       author: PSC Publishing Services
+      subject: Statement of Investigator
+     keywords: None
+      creator: PScript5.dll Version 5.2.2
+     producer: Acrobat Distiller 9.0.0 (Windows)
+ creationDate: D:20130522104413-04'00'
+      modDate: D:20190718154905-07'00'
+   encryption: Standard V4 R4 128-bit AES
+```
+
+---
+
+### `gettext` — extract text from a document
+
+Extracts text from any supported document format to a `.txt` file. Supports three layout modes. Also available as the alias `get_text`.
+
+```bash
+pymupdf gettext [options] input
+```
+
+<ParamField path="input" type="positional" required>
+  Input document filename (any format supported by PyMuPDF, not only PDF).
+</ParamField>
+
+<ParamField path="-password" type="str">
+  Password for a protected document.
+</ParamField>
+
+<ParamField path="-mode" type="str" default="layout">
+  Text extraction mode: `simple`, `blocks`, or `layout`.
+
+  - **simple** — outputs text in document order, no rearrangement.
+  - **blocks** — sorts text blocks by vertical then horizontal position.
+  - **layout** — attempts to reproduce the visual layout of the page; supports horizontal left-to-right text only.
+</ParamField>
+
+<ParamField path="-pages" type="str" default="1-N">
+  Page range to extract (e.g. `1,5-7,50-N`).
+</ParamField>
+
+<ParamField path="-output" type="str">
+  Output `.txt` filename. Defaults to the input filename with the extension replaced by `.txt`.
+</ParamField>
+
+<ParamField path="-noligatures" type="flag">
+  Split ligature characters (e.g. "fi") into their components ("f", "i").
+</ParamField>
+
+<ParamField path="-convert-white" type="flag">
+  Replace whitespace characters (such as tabs) with spaces.
+</ParamField>
+
+<ParamField path="-extra-spaces" type="flag">
+  Insert spaces to fill gaps between characters.
+</ParamField>
+
+<ParamField path="-noformfeed" type="flag">
+  Write `\n` at page boundaries instead of a form-feed character (hex 0x0C).
+</ParamField>
+
+<ParamField path="-skip-empty" type="flag">
+  Suppress pages that contain no extractable text.
+</ParamField>
+
+<ParamField path="-grid" type="float" default="2">
+  Lines within this many points vertically are merged into one output line. Relevant only for `layout` mode. Use with care — too large a value merges distinct lines.
+</ParamField>
+
+<ParamField path="-fontsize" type="float" default="3">
+  Include only text with a font size larger than this value. Relevant only for `layout` mode.
+</ParamField>
+
+```bash
+# Extract using default layout mode
+pymupdf gettext document.pdf
+
+# Extract first page only, block-sorted, no ligatures
+pymupdf gettext -pages 1 -mode blocks -noligatures document.pdf
+
+# Extract with layout preservation, suppress empty pages
+pymupdf gettext -mode layout -skip-empty -output extracted.txt document.pdf
+
+# Abbreviated flags work where unambiguous
+pymupdf gettext -o text.txt -nol -nof -c -g 3 -e document.pdf
+```
+
+<Note>
+  Option flags may be abbreviated as long as the abbreviation is unambiguous. For example, `-nol` for `-noligatures`, `-nof` for `-noformfeed`, `-c` for `-convert-white`, `-g` for `-grid`, and `-e` for `-extra-spaces`.
+</Note>
+
+---
+
+## Embedded file commands
+
+MuPDF dropped embedded-file support after v1.14; PyMuPDF preserves it through these CLI commands.
+
+<AccordionGroup>
+  <Accordion title="embed-info — list embedded files">
+    ```bash
+    pymupdf embed-info [-name NAME] [-detail] [-password PASSWORD] input
+    ```
+
+    Lists embedded filenames. Use `-detail` for per-entry metadata (filename, description, stored size).
+
+    ```bash
+    pymupdf embed-info archive.pdf
+    pymupdf embed-info -name report.xlsx -detail archive.pdf
+    ```
+  </Accordion>
+
+  <Accordion title="embed-extract — extract an embedded file">
+    ```bash
+    pymupdf embed-extract -name NAME [-output OUTPUT] [-unsafe] [-password PASSWORD] input
+    ```
+
+    Writes the embedded file to disk. By default, refuses to overwrite existing files or write outside the current directory. Pass `-unsafe` to bypass these checks.
+
+    ```bash
+    pymupdf embed-extract -name report.xlsx archive.pdf
+    pymupdf embed-extract -name report.xlsx -output my_report.xlsx archive.pdf
+    ```
+  </Accordion>
+
+  <Accordion title="embed-add — add an embedded file">
+    ```bash
+    pymupdf embed-add -name NAME -path PATH [-desc DESC] [-output OUTPUT] [-password PASSWORD] input
+    ```
+
+    Embeds a file into the PDF. `NAME` must not already exist in the document.
+
+    ```bash
+    pymupdf embed-add -name data.csv -path ./data.csv -desc "Source data" archive.pdf
+    ```
+  </Accordion>
+
+  <Accordion title="embed-del — delete an embedded file">
+    ```bash
+    pymupdf embed-del -name NAME [-output OUTPUT] [-password PASSWORD] input
+    ```
+
+    Removes an embedded file entry. Saves incrementally if `-output` is omitted.
+
+    ```bash
+    pymupdf embed-del -name old_data.csv archive.pdf
+    ```
+  </Accordion>
+
+  <Accordion title="embed-upd — update an embedded file">
+    ```bash
+    pymupdf embed-upd -name NAME [-path PATH] [-filename FILENAME] [-ufilename UFILENAME] [-desc DESC] [-output OUTPUT] [-password PASSWORD] input
+    ```
+
+    Updates the data or metadata of an existing embedded file. All parameters except `-name` are optional, so you can update only the description without replacing the file data.
+
+    ```bash
+    # Replace file content
+    pymupdf embed-upd -name data.csv -path ./new_data.csv archive.pdf
+
+    # Update description only
+    pymupdf embed-upd -name data.csv -desc "Updated Q2 data" archive.pdf
+    ```
+  </Accordion>
+
+  <Accordion title="embed-copy — copy embedded files between PDFs">
+    ```bash
+    pymupdf embed-copy -source SOURCE [-name NAME ...] [-output OUTPUT] [-password PASSWORD] [-pwdsource PWDSOURCE] input
+    ```
+
+    Copies embedded files from a source PDF into the destination PDF. Restrict to specific names with one or more `-name` arguments.
+
+    ```bash
+    pymupdf embed-copy -source source.pdf -output merged.pdf destination.pdf
+    pymupdf embed-copy -source source.pdf -name data.csv -name chart.xlsx destination.pdf
+    ```
+  </Accordion>
+</AccordionGroup>

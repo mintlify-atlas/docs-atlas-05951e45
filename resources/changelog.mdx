@@ -1,0 +1,124 @@
+---
+title: "PyMuPDF changelog and version history"
+description: "Recent PyMuPDF release notes covering new features, improvements, bug fixes, and breaking changes. Includes the last 6 release versions."
+keywords: ["changelog", "release notes", "version history", "PyMuPDF updates", "breaking changes"]
+---
+
+PyMuPDF follows MuPDF's release cycle closely — new PyMuPDF versions typically ship within a few days of a new MuPDF release. The entries below cover the six most recent releases. For the complete history, see the [full changelog on GitHub](https://github.com/pymupdf/PyMuPDF/blob/master/changes.txt).
+
+<AccordionGroup>
+
+  <Accordion title="Version 1.27.2.2 — 2026-03-20">
+    **Bug fixes**
+
+    - Fixed incorrect linewidth in elements returned by `Page.get_texttrace()` ([#4902](https://github.com/pymupdf/PyMuPDF/issues/4902)).
+    - Fixed `"Page" has no attribute "find_tables"` error introduced in 1.27 ([#4932](https://github.com/pymupdf/PyMuPDF/issues/4932)).
+
+    **Other**
+
+    - Added `Annot.__bool__()`.
+    - Fixed incorrect generation of `lineJoin j` in PDF content (regression from 1.27.2.2).
+  </Accordion>
+
+  <Accordion title="Version 1.27.2 — 2026-03-10">
+    **MuPDF update**
+
+    Uses MuPDF 1.27.2.
+
+    **Bug fixes**
+
+    - Fixed broken typing caused by `*_forward_decl` ([#4903](https://github.com/pymupdf/PyMuPDF/issues/4903)).
+
+    **Other**
+
+    - Improved `get_textpage_ocr()`: for partial OCR, all page areas outside legible text are now OCRed — not just image areas. This includes vector graphics and text containing illegible characters.
+    - Issue [#4907](https://github.com/pymupdf/PyMuPDF/issues/4907) retroactively marked as fixed in 1.27.1.
+  </Accordion>
+
+  <Accordion title="Version 1.27.1 — 2026-02-11">
+    **MuPDF update**
+
+    Uses MuPDF 1.27.1.
+
+    **Bug fixes**
+
+    - Fixed `page.cluster_drawings()` extracting too many small clusters after upgrading to 1.26 ([#4599](https://github.com/pymupdf/PyMuPDF/issues/4599)).
+    - Fixed memory leak in `page.widgets()` ([#4751](https://github.com/pymupdf/PyMuPDF/issues/4751)).
+    - Fixed segmentation fault when importing pymupdf alongside Pillow for JP2 files on ArchLinux ([#4762](https://github.com/pymupdf/PyMuPDF/issues/4762)).
+    - Fixed failure to delete pages in certain PDFs ([#4790](https://github.com/pymupdf/PyMuPDF/issues/4790)).
+    - Added missing `py.typed` file required for type checking ([#4857](https://github.com/pymupdf/PyMuPDF/issues/4857)).
+    - Fixed `<IMG>` width attribute behaviour ([#4886](https://github.com/pymupdf/PyMuPDF/issues/4886)).
+    - Fixed SIGSEGV in `display_list.get_textpage()` ([#4907](https://github.com/pymupdf/PyMuPDF/issues/4907)).
+
+    **Other**
+
+    - Added `pymupdf.TEXT_CLIP` constant.
+    - Removed support for MuPDF versions older than 1.26.
+    - New `raise_on_repair` argument in `Document.save()`.
+    - New `Document.repair()` method for explicit PDF repair.
+  </Accordion>
+
+  <Accordion title="Version 1.26.7 — 2025-12-11">
+    **MuPDF update**
+
+    Uses MuPDF 1.26.12.
+
+    **Bug fixes**
+
+    - Fixed build failure that dumped all environment variables ([#4801](https://github.com/pymupdf/PyMuPDF/issues/4801)).
+
+    **Other**
+
+    - Improved safety of `pymupdf embed-extract`: the command now refuses to write to an existing file or outside the current directory unless `-output` or the new `-unsafe` flag is specified.
+    - Issue [#4756](https://github.com/pymupdf/PyMuPDF/issues/4756) retroactively marked as fixed in 1.26.6.
+  </Accordion>
+
+  <Accordion title="Version 1.26.6 — 2025-11-05">
+    **MuPDF update**
+
+    Uses MuPDF 1.26.11.
+
+    **Python version support**
+
+    Supported Python versions are now 3.10–3.14.
+
+    **Bug fixes**
+
+    - Fixed `cannot find ExtGState resource` error ([#4699](https://github.com/pymupdf/PyMuPDF/issues/4699)).
+    - Fixed crash with "corrupted double-linked list" ([#4712](https://github.com/pymupdf/PyMuPDF/issues/4712)).
+    - Fixed memory leak in `rewrite_images()` ([#4720](https://github.com/pymupdf/PyMuPDF/issues/4720)).
+    - Fixed `'Rect' object has no attribute 'get_area'` ([#4742](https://github.com/pymupdf/PyMuPDF/issues/4742)).
+    - Fixed unexpected keyword argument `encoding` in `Document.__init__()` ([#4746](https://github.com/pymupdf/PyMuPDF/issues/4746)).
+    - Fixed SWIG version detection (`--version` vs `-version`) ([#4756](https://github.com/pymupdf/PyMuPDF/issues/4756)).
+  </Accordion>
+
+  <Accordion title="Version 1.26.5 — 2025-10-10">
+    **MuPDF update**
+
+    Uses MuPDF 1.26.10.
+
+    **Python version support**
+
+    Supported Python versions are now 3.9–3.14.
+
+    **Bug fixes**
+
+    - Improved Python type annotations for `fitz_new` ([#2883](https://github.com/pymupdf/PyMuPDF/issues/2883)).
+    - Fixed multiple bugs in Pyodide builds ([#4507](https://github.com/pymupdf/PyMuPDF/issues/4507)).
+    - Fixed Thai and number blocks not auto-scaling in `insert_htmlbox()` ([#4613](https://github.com/pymupdf/PyMuPDF/issues/4613)).
+    - Fixed `pymupdf.open()` silently accepting `.zip` files ([#4700](https://github.com/pymupdf/PyMuPDF/issues/4700)).
+    - Fixed problems with unreadable characters ([#4716](https://github.com/pymupdf/PyMuPDF/issues/4716)).
+
+    **Other**
+
+    - All class methods are now defined explicitly instead of via dynamic assignment, improving type hints.
+    - Removed duplicate `pymupdf.utils.Shape` class (use `pymupdf.Shape`).
+    - Added documentation section on Linux wheels and glibc compatibility.
+    - Improved documentation for `pymupdf.open()`'s `filetype` argument.
+  </Accordion>
+
+</AccordionGroup>
+
+<Note>
+The complete version history dating back to version 1.8.0 is available in the [changes.txt file on GitHub](https://github.com/pymupdf/PyMuPDF/blob/master/changes.txt).
+</Note>
